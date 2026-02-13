@@ -208,7 +208,7 @@ async def on_message(message):
     for word in not_to_use:
         if word in message.content.lower().replace('@', 'a').replace('1', 'i').replace('!', 'i').replace('ĝ','g').replace('é', 'e').replace('ř', 'r').strip('?=’,.\'.').replace('4','a').replace('1','i').replace('3', 'e').replace('5','s').replace('8', 'o'):
             dont_send= True
-            break
+            break   
     
     if dont_send == False:
         #reacting to messages
@@ -1078,8 +1078,6 @@ async def pfp(ctx):
             white_image = Image.new('RGBA', (800,400),(255,255,255,255))#mode here RGBA, size, color missed alpha
             white_image.paste(rounded_img, (width,height), mask=mask)
             white_image.save('card.png', 'PNG')
-            white_image.convert('RGB')
-            white_image.save('card.jpeg', 'JPEG')
             os.startfile('card.png')
     except Exception as e:
         print(e)
