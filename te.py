@@ -1,0 +1,1 @@
+print("{'beginner': {'xp': 0, 'strikes': math.inf}, 'member': {'xp': 500, 'strikes': math.inf}, 'elite member': {'xp': 2500, 'strikes': 20}, 'trial dev': {'xp': 5000, 'strikes': 10}, 'dev': {'xp': 12500, 'strikes': 5}}".replace('\'', "\""))

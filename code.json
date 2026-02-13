@@ -1,0 +1,1 @@
+{"empty_func": "```python\ndef main():\n    pass\nif __name__ == '__main__':\n    main()```", "print": "```python\nprint('text')```", "help": "Avalible code is:\nempty_func\nprint"}
