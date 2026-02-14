@@ -303,10 +303,12 @@ async def on_message(message):
                 if random.randint(1,4) == 1:
                     await message.channel.send(random.choice(gif_reactions['absolute_cinema']))
             
-
-
+    if message.guild and message.guild.id != server_id:#print('Mesage was sent in the wrong server.')
+        return
+    elif not message.guild:#print('Message was sent in a dm.')
+        return
     #logs the sent message
-    if message.author not in logs.keys():
+    if message.author not in logs.keys():                       
         logs[message.author] = {}
     if message.created_at not in logs[message.author].keys():
         logs[message.author][message.created_at]  = []
@@ -316,7 +318,10 @@ async def on_message(message):
         await check_spam() #checks if the messages are spam
 
     username = str(message.author).split('#')[0]
-    channel = message.channel.name
+    try:
+        channel = message.channel.name
+    except AttributeError:
+        channel = 'DM channel'
     channel_id = message.channel.id
     user_message = str(message.content)
     print(f'Message {user_message} was sent by {username} in the following channel: {channel}')
@@ -418,8 +423,6 @@ async def rank_check(member: discord.Member):
     next_rank = user_stats[member.name]['next_rank']
     user_xp = user_stats[member.name]['xp']
     user_strikes = strikes[member.name]
-    print(next_rank)
-    print(roles_requirements.keys())
     if next_rank in roles_requirements.keys():
         if roles_requirements[next_rank]['xp'] <= user_xp and roles_requirements[next_rank]['strikes'] >= user_strikes:
             guild = client.get_guild(server_id)
@@ -1024,7 +1027,7 @@ async def remove_allowed_channels(ctx, channel_id: str):
 
 
 @client.command()
-async def stats(ctx, member: discord.Member = math.inf):
+async def stats_msg(ctx, member: discord.Member = math.inf):
     if member == math.inf:
         member = ctx.author
     if ctx.author == member:
@@ -1033,7 +1036,7 @@ async def stats(ctx, member: discord.Member = math.inf):
         elif type(user_stats[member.name]['xp_for_next_rank']) == str:
             response = f'You cant progress any further with xp. The only possible way you can archieve the next rank is {user_stats[member.name]['xp_for_next_rank']}.'
         else:
-            f'You need {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']} (Every message gives 5xp).\n'
+            response = f'You need {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']} (Every message gives 5xp).\n'
 
         await ctx.send(f'\nUsername: {member.name}\n'
                        f'You wrote {user_stats[member.name]['message_count']} messages.\n'
@@ -1049,7 +1052,7 @@ async def stats(ctx, member: discord.Member = math.inf):
         elif type(user_stats[member.name]['xp_for_next_rank']) == str:
             response = f'The user cant progress any further with xp. The only possible way you can archieve the next rank is {user_stats[member.name]['xp_for_next_rank']}.'
         else:
-            f'The User needs {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']} (Every message gives 5xp).\n'
+            response = f'The User needs {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']} (Every message gives 5xp).\n'
         await ctx.send(f'\nUsername: {member.name}\n'
                        f'The user wrote {user_stats[member.name]['message_count']} messages.\n'
                        f'The users current rank is: {user_stats[member.name]['rank']}\n'
@@ -1077,8 +1080,32 @@ async def pfp(ctx):
             rounded_img.paste(img, (0,0), mask=mask)#mask is not only just used as out it over the image but it is used as only show whats visible inside and cut the rest away its 0,0 because 0,0 is in the top left 
             white_image = Image.new('RGBA', (800,400),(255,255,255,255))#mode here RGBA, size, color missed alpha
             white_image.paste(rounded_img, (width,height), mask=mask)
+            current_xp = user_stats[member.name]['xp']
+            xp_needed = roles_requirements[user_stats[member.name]['next_rank']]['xp']
+            txt_to_dp = f'{current_xp}/{xp_needed}'
+            if type(xp_needed) != int:
+                xp_needed = current_xp
+                txt_to_dp = 'Max'
+            progress= current_xp/xp_needed # Total_widht * progress = current xp / needed xp
+            width = int(300 * progress)
+            full_width = 300
+            height = 25
+            bar = Image.new('RGBA', (width, height), (9, 129, 209))
+            mask = Image.new('L', (width, height), 0)
+            radius = int(height/2)
+            draw = ImageDraw.Draw(mask)#makes it possible to draw on the image mask
+            draw.rounded_rectangle((0,0, width, height), fill=255, radius= radius)
+            #outline = Image.new('RGBA', (full_width,height), (0,0,0,0))
+            #draw = ImageDraw.Draw(outline)
+            #draw.rounded_rectangle((0,0, full_width, height), outline=205, radius=radius, width=4)
+            rounded_bar = Image.new('RGBA', (width, height), (0,0,0,0))
+            rounded_bar.paste(bar, (0,0), mask=mask)
+            white_image.paste(rounded_bar,(300, 300), mask=mask)
+            draw = ImageDraw.Draw(white_image) 
+            draw.rounded_rectangle((300,300, 600, 325), radius=radius,outline=0, width=3)
+            #white_image.paste(outline, (300,300))
             white_image.save('card.png', 'PNG')
-            os.startfile('card.png')
+            await ctx.reply(file=discord.File('card.png'))#await ctx.reply(file=discord.File(file_to_send))
     except Exception as e:
         print(e)
 

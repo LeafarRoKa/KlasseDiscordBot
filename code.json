@@ -1,1 +1,1 @@
-{"empty_func": "```python\ndef main():\n    pass\nif __name__ == '__main__':\n    main()```", "print": "```python\nprint('text')```", "help": "Avalible code is:\nempty_func\nprint"}
+{"empty_func": "```python\ndef main():\n    pass\nif __name__ == '__main__':\n    main()```", "print": "```python\nprint('text')```", "help": "Avalible code is:\nempty_func\nprint\nsend_dc_file", "send_dc_file": "```python\nawait ctx.reply(file=discord.File(file_to_send))```"}
