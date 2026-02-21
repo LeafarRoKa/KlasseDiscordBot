@@ -12,7 +12,8 @@ import statistics
 import asyncio
 import random
 from io import BytesIO
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
+import aiohttp
 load_dotenv() 
 
 strikes = {}
@@ -1025,90 +1026,138 @@ async def remove_allowed_channels(ctx, channel_id: str):
             await ctx.send(f'Successfully removed channel {name} from the allowed channels.')
     await ctx.send('Channel id is not yet registred to the allowed channels.')
 
-
-@client.command()
-async def stats_msg(ctx, member: discord.Member = math.inf):
-    if member == math.inf:
-        member = ctx.author
-    if ctx.author == member:
-        if user_stats[member.name]['xp_for_next_rank'] == 'There is no greater rank beyond Owner':
-            response = 'There is no greater rank beyond Owner'
-        elif type(user_stats[member.name]['xp_for_next_rank']) == str:
-            response = f'You cant progress any further with xp. The only possible way you can archieve the next rank is {user_stats[member.name]['xp_for_next_rank']}.'
-        else:
-            response = f'You need {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']} (Every message gives 5xp).\n'
-
-        await ctx.send(f'\nUsername: {member.name}\n'
-                       f'You wrote {user_stats[member.name]['message_count']} messages.\n'
-                       f'Your current rank is: {user_stats[member.name]['rank']}\n'
-                       f'Your next rank is: {user_stats[member.name]['next_rank']}\n'
-                       f'You joined on the {user_stats[member.name]['join_date']}\n'
-                       f'Your total xp: {user_stats[member.name]['xp']}\n'
-                       f'{response}')
-        
-    else:
-        if user_stats[member.name]['xp_for_next_rank'] == 'There is no greater rank beyond Owner':
-            response = 'There is no greater rank beyond Owner'
-        elif type(user_stats[member.name]['xp_for_next_rank']) == str:
-            response = f'The user cant progress any further with xp. The only possible way you can archieve the next rank is {user_stats[member.name]['xp_for_next_rank']}.'
-        else:
-            response = f'The User needs {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']} (Every message gives 5xp).\n'
-        await ctx.send(f'\nUsername: {member.name}\n'
-                       f'The user wrote {user_stats[member.name]['message_count']} messages.\n'
-                       f'The users current rank is: {user_stats[member.name]['rank']}\n'
-                       f'The Users next rank is: {user_stats[member.name]['next_rank']}\n'
-                       f'User joined on the {user_stats[member.name]['join_date']}\n'
-                       f'Users total xp: {user_stats[member.name]['xp']}\n'
-                       f'{response}')
-
 @client.command()   
-async def pfp(ctx):
-    member = ctx.author
+async def stats(ctx, user: discord.Member = None):
+    if user == None:
+        member = ctx.author
+    else:
+        member = user
     try:
         avatar_in_bytes = await member.display_avatar.read() if member.avatar else member.default_avatar.read()
-        with Image.open(BytesIO(avatar_in_bytes)).convert('RGBA') as img:
-            jpeg_ram = BytesIO()
-            img.save(jpeg_ram,'PNG')
-            jpeg_ram.seek(0) #read cursor position
-            img = img.resize((50,50), Image.LANCZOS)
-            width, height = img.size
-            mask = Image.new('L', (width, height), 0) # L is for grayscale black and white 0 is the color black so everything that is black here covers everyting white shows
-            draw = ImageDraw.Draw(mask)#the object you can draw on
-            draw.ellipse((0,0, width, height), fill= 255)#it draws an image from (0,0) (x) to (50,50) (y) 
-            #puts the mask over the image so only the part inside the circle is visible
-            rounded_img = Image.new('RGBA', (width, height), (0,0,0,0))#creates a new Image object with the image size of the full mask and of the image to round
-            rounded_img.paste(img, (0,0), mask=mask)#mask is not only just used as out it over the image but it is used as only show whats visible inside and cut the rest away its 0,0 because 0,0 is in the top left 
-            white_image = Image.new('RGBA', (800,400),(255,255,255,255))#mode here RGBA, size, color missed alpha
-            white_image.paste(rounded_img, (width,height), mask=mask)
-            current_xp = user_stats[member.name]['xp']
+        rounded_img, mask = PIL_round_img_obj(avatar_in_bytes, (395,395))
+        with Image.open('base.png','r') as img2:
+            white_image = img2.copy()#.copy is absolutly needed here because it would else just reference the object that doesnt exist anymore because with closes it after
+        white_image.paste(rounded_img, (7,85), mask=mask)
+        width, height = white_image.size
+        server = ctx.guild
+        index = server.id % 5#this is the server icon discord chooses out of the 5 using the same line
+        server_avatar_url = server.icon.url if server.icon else f'https://cdn.discordapp.com/embed/avatars/{index}.png'
+        async with aiohttp.ClientSession() as session: #starts a new http session, use it with paragraphs to use the function not the class
+            async with session.get(server_avatar_url) as site: #opens the icon or default server icon site
+                server_avatar_in_bytes = await site.read() 
+        img2,mask = PIL_round_img_obj(server_avatar_in_bytes,(90,90))
+        white_image.paste(img2,(535,125),mask=mask)            
+        current_xp = user_stats[member.name]['xp']
+        try:
             xp_needed = roles_requirements[user_stats[member.name]['next_rank']]['xp']
-            txt_to_dp = f'{current_xp}/{xp_needed}'
-            if type(xp_needed) != int:
-                xp_needed = current_xp
-                txt_to_dp = 'Max'
-            progress= current_xp/xp_needed # Total_widht * progress = current xp / needed xp
-            width = int(300 * progress)
-            full_width = 300
-            height = 25
-            bar = Image.new('RGBA', (width, height), (9, 129, 209))
-            mask = Image.new('L', (width, height), 0)
-            radius = int(height/2)
-            draw = ImageDraw.Draw(mask)#makes it possible to draw on the image mask
-            draw.rounded_rectangle((0,0, width, height), fill=255, radius= radius)
-            #outline = Image.new('RGBA', (full_width,height), (0,0,0,0))
-            #draw = ImageDraw.Draw(outline)
-            #draw.rounded_rectangle((0,0, full_width, height), outline=205, radius=radius, width=4)
-            rounded_bar = Image.new('RGBA', (width, height), (0,0,0,0))
-            rounded_bar.paste(bar, (0,0), mask=mask)
-            white_image.paste(rounded_bar,(300, 300), mask=mask)
-            draw = ImageDraw.Draw(white_image) 
-            draw.rounded_rectangle((300,300, 600, 325), radius=radius,outline=0, width=3)
-            #white_image.paste(outline, (300,300))
-            white_image.save('card.png', 'PNG')
-            await ctx.reply(file=discord.File('card.png'))#await ctx.reply(file=discord.File(file_to_send))
+        except KeyError:
+            xp_needed = ''
+        txt_to_dp = f'XP: {current_xp}/{xp_needed}'
+        if type(xp_needed) != int:
+            xp_needed = current_xp
+            txt_to_dp = 'Max Rank'
+        draw = ImageDraw.Draw(white_image)
+        progress= current_xp/xp_needed # Total_widht * progress = current xp / needed xp
+        full_width = 500
+        width_bar = int(full_width * progress)
+        percent = f'{int(progress * 100)}%'
+        height_bar = 25
+        bar = Image.new('RGBA', (width_bar, height_bar), (9, 129, 209))
+        mask = Image.new('L', (width_bar, height_bar), 0)
+        radius = int(height_bar/2)
+        x= int(width/2)
+        y = int(height/2.5)
+        cords = x,y
+        bar_cords = x+width_bar,y-5
+        draw = ImageDraw.Draw(mask)#makes it possible to draw on the image mask
+        draw.rounded_rectangle((0,0, width_bar, height_bar), fill=255, radius= radius)
+        rounded_bar = Image.new('RGBA', (width_bar, height_bar), (0,0,0,0))
+        rounded_bar.paste(bar, (0,0), mask=mask)
+        bar_cords = bar_cords[0] + 10, bar_cords[1]
+        white_image.paste(rounded_bar,(cords), mask=mask)
+        draw = ImageDraw.Draw(white_image) 
+        draw.rounded_rectangle((x, y, x+full_width, y+25), radius=radius,outline=0, width=3)
+        extra = 40
+        font_size = 28
+        cords = (x, 170)
+        draw = PIL_text_obj(draw, cords, member.display_name,font_size= 80, text_color=(255,255,255))
+        draw = PIL_text_obj(draw,bar_cords,percent,font_size=font_size)
+        if ctx.author == member:
+            if user_stats[member.name]['xp_for_next_rank'] == 'There is no greater rank beyond Owner':
+                response = 'There is no way to rank up with xp after at this rank.'
+            elif type(user_stats[member.name]['xp_for_next_rank']) == str:
+                response = f'You cant progress any further with xp. The only possible way you can archieve the next rank is {user_stats[member.name]['xp_for_next_rank']}.'
+            else:
+                response = f'You need {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']}\n(Every message gives 5xp).\n'
+            cords = (x, y-40)
+            draw = PIL_text_obj(draw, cords, txt_to_dp,font_size= font_size)
+            cords = cords[0], cords[1] + extra + 30
+            draw = PIL_text_obj(draw,cords, f'You wrote {user_stats[member.name]['message_count']} messages.\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'Your current rank is: {user_stats[member.name]['rank']}\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'Your next rank is: {user_stats[member.name]['next_rank']}\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'You joined on the {user_stats[member.name]['join_date']}\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'Your total xp: {user_stats[member.name]['xp']}\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
+        else:
+            if user_stats[member.name]['xp_for_next_rank'] == 'There is no greater rank beyond Owner':
+                response = 'There is no way to rank up with xp after at this rank.'
+            elif type(user_stats[member.name]['xp_for_next_rank']) == str:
+                response = f'The user cant progress any further with xp. The only possible way you can archieve the next rank is {user_stats[member.name]['xp_for_next_rank']}.'
+            else:
+                response = f'The User needs {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']}\n(Every message gives 5xp).\n'
+            cords = (x, y-40)
+            draw = PIL_text_obj(draw, cords, txt_to_dp,font_size= font_size)
+            cords = cords[0], cords[1] + extra + 30
+            draw = PIL_text_obj(draw,cords, f'The user wrote {user_stats[member.name]['message_count']} messages.\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'The users current rank is: {user_stats[member.name]['rank']}\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'The users next rank is: {user_stats[member.name]['next_rank']}\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'User joined on the {user_stats[member.name]['join_date']}\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'Users total xp: {user_stats[member.name]['xp']}\n',font_size= font_size)
+            cords = cords[0], cords[1] + extra
+            draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
+        white_image.resize((500,333), Image.LANCZOS)
+        white_image.save('card.png', 'PNG')
+        await ctx.reply(file=discord.File('card.png'))#await ctx.reply(file=discord.File(file_to_send))
     except Exception as e:
         print(e)
+        await ctx.reply('An error occoured while trying to execute this command!')
 
+def PIL_text_obj(draw: ImageDraw,cords, txt_to_dp = 'hello world',font_size = 20,bold_width = 0.5, text_color = (0,0,0),bold_fill = None, font = 'default'):
+        if bold_fill == None:
+            bold_fill = text_color
+        try:
+            font = ImageFont.truetype(font, font_size)
+        except OSError:
+            try:
+                font = ImageFont.truetype("arial.ttf", font_size)  # Works on Windows
+            except OSError: # Fallback for Linux/Mac if Arial is not available
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+        draw.text(cords,txt_to_dp,fill= text_color, font=font, stroke_width=bold_width, stroke_fill= bold_fill)
+        return draw
+def PIL_round_img_obj(img, size = None):
+    with Image.open(BytesIO(img)).convert('RGBA') as img:
+        jpeg_ram = BytesIO()
+        img.save(jpeg_ram,'PNG')
+        jpeg_ram.seek(0) #read cursor position
+        if size != None:
+            img = img.resize(size, Image.LANCZOS)
+        width, height = img.size
+        mask = Image.new('L', (width, height), 0) # L is for grayscale black and white 0 is the color black so everything that is black here covers everyting white shows
+        draw = ImageDraw.Draw(mask)#the object you can draw on
+        draw.ellipse((0,0, width, height), fill= 255)#it draws an image from (0,0) (x) to (50,50) (y) 
+        #puts the mask over the image so only the part inside the circle is visible
+        rounded_img = Image.new('RGBA', (width, height), (0,0,0,0))#creates a new Image object with the image size of the full mask and of the image to round
+        rounded_img.paste(img, (0,0), mask=mask)#mask is not only just used as out it over the image but it is used as only show whats visible inside and cut the rest away its 0,0 because 0,0 is in the top left 
+        return rounded_img, mask    
 
 for cmd in client.commands:
     commands_list.append(cmd.name) 
