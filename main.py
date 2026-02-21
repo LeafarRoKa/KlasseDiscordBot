@@ -60,6 +60,8 @@ with open('en.txt', 'r') as f:
 with open('strikes.json', 'r', encoding = 'utf-8') as f:
     strikes = json.load(f)
 
+months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
+
 admin_channel_id = 1466034381499007084
 bot_channel_id = 1466034381499007082
 welcome_channel_id = 1466034381499007083
@@ -115,10 +117,10 @@ def is_dict_complete():
 def update_rank(member: discord.Member):
     if any(role.name.lower() == 'owner' for role in member.roles):
         rank = 'owner'
-        next_rank = 'There is no greater rank beyond Owner'
+        next_rank = 'None'
     elif any(role.name.lower() == 'admin' for role in member.roles):
         rank = 'admin'
-        next_rank = 'There is no greater rank beyond admin that you can archieve normally.'
+        next_rank = 'Normally there is no greater rank beyond admin.'
     elif any(role.name.lower() == 'mini mod' for role in member.roles):
         rank = 'mini mod'
         next_rank = 'admin'
@@ -136,7 +138,7 @@ def update_rank(member: discord.Member):
         next_rank = 'elite member'
     elif any(role.name.lower() == 'spammer' for role in member.roles):
         rank = 'spammer'
-        next_rank = 'There is no greater rank beyond Owner'
+        next_rank = 'Wait out your time as a spammer to reveal your next rank'
     else:
         rank = 'beginner'
         next_rank = 'member'
@@ -151,9 +153,9 @@ def update_rank(member: discord.Member):
             promotion_path = 'through votes of users with the rank member or higher'
         elif next_rank == 'admin':
             promotion_path = 'trough manual promotion of the server owner. You also need to be a mini mod at the moment of promotion.'
-        elif next_rank == 'Wait out your time as a spammer to find out your next rank.':
+        elif next_rank == 'Wait out your time as a spammer to reveal your next rank.':
             promotion_path = 'to sit out your time as a spammer.'        
-        if next_rank == 'There is no greater rank beyond Owner':
+        if next_rank == 'None':
             user_stats[member.name]['xp_for_next_rank'] = 'There is no greater rank beyond Owner'
         else:
             user_stats[member.name]['xp_for_next_rank'] = promotion_path
@@ -1055,7 +1057,7 @@ async def stats(ctx, user: discord.Member = None):
         txt_to_dp = f'XP: {current_xp}/{xp_needed}'
         if type(xp_needed) != int:
             xp_needed = current_xp
-            txt_to_dp = 'Max Rank'
+            txt_to_dp = 'Max XP'
         draw = ImageDraw.Draw(white_image)
         progress= current_xp/xp_needed # Total_widht * progress = current xp / needed xp
         full_width = 500
@@ -1063,67 +1065,83 @@ async def stats(ctx, user: discord.Member = None):
         percent = f'{int(progress * 100)}%'
         height_bar = 25
         bar = Image.new('RGBA', (width_bar, height_bar), (9, 129, 209))
+        for x in range(bar.width):
+            if txt_to_dp == 'Max XP':
+                start_color = (187,155,73)
+                end_color = (255, 255, 200)
+            else:
+                start_color = (0, 200, 255)
+                end_color = (120, 255, 255)
+            percentage = x / (bar.width-1)
+            bar_pixels = bar.load()
+            r = int(start_color[0] + (end_color[0] - start_color[0]) * percentage)# it works because when it gets brighter the way is - so every time it removes more
+            g = int(start_color[1] + (end_color[1] - start_color[1]) * percentage)# it takes the base and adds the way multiplied by how far to it
+            b = int(start_color[2] + (end_color[2] - start_color[2]) * percentage)
+            for y in range(bar.height):
+                bar_pixels[x,y] = (r,g,b)
+
         mask = Image.new('L', (width_bar, height_bar), 0)
-        radius = int(height_bar/2)
         x= int(width/2)
         y = int(height/2.5)
         cords = x,y
-        bar_cords = x+width_bar,y-5
+        bar_cords = x+width_bar,y-2.5
+        radius = height_bar//2 
         draw = ImageDraw.Draw(mask)#makes it possible to draw on the image mask
-        draw.rounded_rectangle((0,0, width_bar, height_bar), fill=255, radius= radius)
+        if width_bar <= radius*2:
+            draw.pieslice((0,0,height_bar, height_bar), 90, 270, fill= 255)
+            try:
+                draw.rectangle((radius,0, width_bar, height_bar), fill=255)
+            except ValueError:
+                pass
+        else:
+            draw.rounded_rectangle((0,0,width_bar,height_bar), radius=radius,fill=255)
         rounded_bar = Image.new('RGBA', (width_bar, height_bar), (0,0,0,0))
         rounded_bar.paste(bar, (0,0), mask=mask)
         bar_cords = bar_cords[0] + 10, bar_cords[1]
         white_image.paste(rounded_bar,(cords), mask=mask)
-        draw = ImageDraw.Draw(white_image) 
+        draw = ImageDraw.Draw(white_image)
         draw.rounded_rectangle((x, y, x+full_width, y+25), radius=radius,outline=0, width=3)
         extra = 40
         font_size = 28
         cords = (x, 170)
-        draw = PIL_text_obj(draw, cords, member.display_name,font_size= 80, text_color=(255,255,255))
-        draw = PIL_text_obj(draw,bar_cords,percent,font_size=font_size)
-        if ctx.author == member:
-            if user_stats[member.name]['xp_for_next_rank'] == 'There is no greater rank beyond Owner':
-                response = 'There is no way to rank up with xp after at this rank.'
-            elif type(user_stats[member.name]['xp_for_next_rank']) == str:
-                response = f'You cant progress any further with xp. The only possible way you can archieve the next rank is {user_stats[member.name]['xp_for_next_rank']}.'
-            else:
-                response = f'You need {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']}\n(Every message gives 5xp).\n'
-            cords = (x, y-40)
-            draw = PIL_text_obj(draw, cords, txt_to_dp,font_size= font_size)
-            cords = cords[0], cords[1] + extra + 30
-            draw = PIL_text_obj(draw,cords, f'You wrote {user_stats[member.name]['message_count']} messages.\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'Your current rank is: {user_stats[member.name]['rank']}\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'Your next rank is: {user_stats[member.name]['next_rank']}\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'You joined on the {user_stats[member.name]['join_date']}\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'Your total xp: {user_stats[member.name]['xp']}\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
+        if txt_to_dp == 'Max XP':
+            draw = PIL_text_obj(draw, cords, member.display_name,font_size= 80, text_color=(187,155,73))
         else:
+            draw = PIL_text_obj(draw, cords, member.display_name,font_size= 80, text_color=(255,255,255))
+        draw = PIL_text_obj(draw,bar_cords,percent,font_size=font_size-2)
+        if user_stats[member.name]['xp_for_next_rank'] == 'Owner is the highest rank':
+            response = 'There is no way to rank up with xp after at this rank.'
+        elif type(user_stats[member.name]['xp_for_next_rank']) == str:
             if user_stats[member.name]['xp_for_next_rank'] == 'There is no greater rank beyond Owner':
-                response = 'There is no way to rank up with xp after at this rank.'
-            elif type(user_stats[member.name]['xp_for_next_rank']) == str:
-                response = f'The user cant progress any further with xp. The only possible way you can archieve the next rank is {user_stats[member.name]['xp_for_next_rank']}.'
+                response = f'There is no higher rank.'
             else:
-                response = f'The User needs {user_stats[member.name]['xp_for_next_rank']} xp to rank up to {user_stats[member.name]['next_rank']}\n(Every message gives 5xp).\n'
-            cords = (x, y-40)
-            draw = PIL_text_obj(draw, cords, txt_to_dp,font_size= font_size)
-            cords = cords[0], cords[1] + extra + 30
-            draw = PIL_text_obj(draw,cords, f'The user wrote {user_stats[member.name]['message_count']} messages.\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'The users current rank is: {user_stats[member.name]['rank']}\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'The users next rank is: {user_stats[member.name]['next_rank']}\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'User joined on the {user_stats[member.name]['join_date']}\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'Users total xp: {user_stats[member.name]['xp']}\n',font_size= font_size)
-            cords = cords[0], cords[1] + extra
-            draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
+                response = f'It is not possible to progress with XP.\nIt is only possible to rank up {user_stats[member.name]['xp_for_next_rank']}.'
+        else:
+            response = f'You need {user_stats[member.name]['xp_for_next_rank']} xp to rank up {user_stats[member.name]['next_rank']}\n(Every message gives 5xp).\n'
+        counter = 0
+        for split in user_stats[member.name]['join_date'].split('.'):
+            if counter == 0:
+                day = str(split)
+            elif counter == 1:
+                month = months[split]
+            elif counter == 2:
+                year = str(split)
+            counter += 1
+        date = f'{day} {month} {year}'
+        cords = (x, y-50)
+        draw = PIL_text_obj(draw, cords, txt_to_dp,font_size= font_size+10)
+        cords = cords[0], cords[1] + extra + 60
+        draw = PIL_text_obj(draw,cords, f'Messages        {user_stats[member.name]['message_count']}',font_size= font_size)
+        cords = cords[0], cords[1] + extra
+        draw = PIL_text_obj(draw,cords, f'Rank                {user_stats[member.name]['rank']}',font_size= font_size)
+        cords = cords[0], cords[1] + extra
+        draw = PIL_text_obj(draw,cords, f'Next rank         {user_stats[member.name]['next_rank']}',font_size= font_size)
+        cords = cords[0], cords[1] + extra
+        draw = PIL_text_obj(draw,cords, f'Joined              {date}',font_size= font_size)
+        cords = cords[0], cords[1] + extra
+        draw = PIL_text_obj(draw,cords, f'Total XP           {user_stats[member.name]['xp']}',font_size= font_size)
+        cords = cords[0], cords[1] + extra
+        draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
         white_image.resize((500,333), Image.LANCZOS)
         white_image.save('card.png', 'PNG')
         await ctx.reply(file=discord.File('card.png'))#await ctx.reply(file=discord.File(file_to_send))
