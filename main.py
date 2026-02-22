@@ -14,6 +14,7 @@ import random
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 import aiohttp
+from pathlib import Path
 load_dotenv() 
 
 strikes = {}
@@ -61,6 +62,7 @@ with open('strikes.json', 'r', encoding = 'utf-8') as f:
     strikes = json.load(f)
 
 months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
+roles_imgs = {'owner': r'owner.png', 'mini mod': '','klassebot': r'bot.png', 'admin': r"admin.png", 'dev': r"dev.png", 'trial dev': r"trial_dev.png", 'elite member': r'Elite_member.png', 'member': r"member.png", 'beginner': r'beginner.png', 'spammer':''}
 
 admin_channel_id = 1466034381499007084
 bot_channel_id = 1466034381499007082
@@ -108,7 +110,7 @@ def is_dict_complete():
                 strikes[member.name] = 0
                 with open('strikes.json', 'w') as f:
                     json.dump(strikes, f)
-            if member.name not in user_stats.keys() and member.name != client.user.name:
+            if member.name not in user_stats.keys():
                 user_stats[member.name] = {'message_count': 0, 'join_date': member.joined_at.strftime('%d.%m.%Y'),'xp': 0 }
                 update_rank(member)
                 with open('json.stats', 'w') as f:
@@ -118,33 +120,47 @@ def update_rank(member: discord.Member):
     if any(role.name.lower() == 'owner' for role in member.roles):
         rank = 'owner'
         next_rank = 'None'
+        img = roles_imgs['owner']
+    elif any(role.name.lower() == 'klassebot' for role in member.roles):
+        rank = 'KlasseBot'
+        next_rank = 'None'
+        img = roles_imgs['klassebot']
     elif any(role.name.lower() == 'admin' for role in member.roles):
         rank = 'admin'
         next_rank = 'Normally there is no greater rank beyond admin.'
+        img = roles_imgs['admin']
     elif any(role.name.lower() == 'mini mod' for role in member.roles):
         rank = 'mini mod'
         next_rank = 'admin'
+        img = roles_imgs['mini_mod']
     elif any(role.name.lower() == 'dev' for role in member.roles):
         rank = 'dev'
         next_rank = 'mini mod'
+        img = roles_imgs['dev']
     elif any(role.name.lower() == 'trial dev' for role in member.roles):
         rank = 'trial dev'
         next_rank = 'dev'
+        img = roles_imgs['trial dev']
     elif any(role.name.lower() == 'elite member' for role in member.roles):
         rank = 'elite member'
         next_rank = 'trial dev'
+        img = roles_imgs['elite member']
     elif any(role.name.lower() == 'member' for role in member.roles):
         rank = 'member'
         next_rank = 'elite member'
+        img = roles_imgs['member']
     elif any(role.name.lower() == 'spammer' for role in member.roles):
         rank = 'spammer'
-        next_rank = 'Wait out your time as a spammer to reveal your next rank'
+        next_rank = 'Currently not avalible.'
+        img = roles_imgs['spammer']
     else:
         rank = 'beginner'
         next_rank = 'member'
+        img = roles_imgs['beginner']
     
     user_stats[member.name]['rank'] = rank
     user_stats[member.name]['next_rank'] = next_rank
+    user_stats[member.name]['img'] = img
     try:
         user_stats[member.name]['xp_for_next_rank'] = roles_requirements[next_rank]['xp'] - user_stats[member.name]['xp']
     except KeyError:
@@ -153,8 +169,8 @@ def update_rank(member: discord.Member):
             promotion_path = 'through votes of users with the rank member or higher'
         elif next_rank == 'admin':
             promotion_path = 'trough manual promotion of the server owner. You also need to be a mini mod at the moment of promotion.'
-        elif next_rank == 'Wait out your time as a spammer to reveal your next rank.':
-            promotion_path = 'to sit out your time as a spammer.'        
+        elif next_rank == 'Currently not avalible.':
+            promotion_path = 'by loosing the role spammer'        
         if next_rank == 'None':
             user_stats[member.name]['xp_for_next_rank'] = 'There is no greater rank beyond Owner'
         else:
@@ -205,6 +221,10 @@ async def on_message(message):
     }
     #prevents the bot responding to himself
     if message.author == client.user:
+        user_stats[message.author.name]['xp'] += 5
+        user_stats[message.author.name]['message_count'] += 1
+        with open('stats.json', 'w') as f:
+            json.dump(user_stats, f)
         return
     
     dont_send= False
@@ -1035,7 +1055,7 @@ async def stats(ctx, user: discord.Member = None):
     else:
         member = user
     try:
-        avatar_in_bytes = await member.display_avatar.read() if member.avatar else member.default_avatar.read()
+        avatar_in_bytes = await member.display_avatar.read() if member.avatar else await member.default_avatar.read()
         rounded_img, mask = PIL_round_img_obj(avatar_in_bytes, (395,395))
         with Image.open('base.png','r') as img2:
             white_image = img2.copy()#.copy is absolutly needed here because it would else just reference the object that doesnt exist anymore because with closes it after
@@ -1056,7 +1076,11 @@ async def stats(ctx, user: discord.Member = None):
             xp_needed = ''
         txt_to_dp = f'XP: {current_xp}/{xp_needed}'
         if type(xp_needed) != int:
-            xp_needed = current_xp
+            if current_xp != 0:
+                xp_needed = current_xp
+            else:
+                xp_needed = 1
+                current_xp = 1
             txt_to_dp = 'Max XP'
         draw = ImageDraw.Draw(white_image)
         progress= current_xp/xp_needed # Total_widht * progress = current xp / needed xp
@@ -1113,9 +1137,12 @@ async def stats(ctx, user: discord.Member = None):
             response = 'There is no way to rank up with xp after at this rank.'
         elif type(user_stats[member.name]['xp_for_next_rank']) == str:
             if user_stats[member.name]['xp_for_next_rank'] == 'There is no greater rank beyond Owner':
-                response = f'There is no higher rank.'
+                if user_stats[member.name]['rank'] == 'KlasseBot':
+                    response = f'There is no higher rank for me.'
+                else:
+                    response = f'There is no higher rank.'
             else:
-                response = f'It is not possible to progress with XP.\nIt is only possible to rank up {user_stats[member.name]['xp_for_next_rank']}.'
+                response = f'It is not possible to progress with XP.\nIt is only possible to rank up\n{user_stats[member.name]['xp_for_next_rank']}.'
         else:
             response = f'You need {user_stats[member.name]['xp_for_next_rank']} xp to rank up {user_stats[member.name]['next_rank']}\n(Every message gives 5xp).\n'
         counter = 0
@@ -1142,9 +1169,28 @@ async def stats(ctx, user: discord.Member = None):
         draw = PIL_text_obj(draw,cords, f'Total XP           {user_stats[member.name]['xp']}',font_size= font_size)
         cords = cords[0], cords[1] + extra
         draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
+        rank_img = user_stats[member.name]['img']
+        if rank_img != '':
+            try:
+                with Image.open(rank_img, 'r') as rank_img2:
+                    rank_img = rank_img2.copy()
+            except Exception as e:
+                print(e)
+                rank_img = None
+        else:
+            rank_img = None
+        if rank_img != None:
+            extra = 50
+            rank_img = rank_img.resize((rank_img.width-extra, rank_img.height-extra))
+            if rank_img.size == (300-extra,300-extra):
+                rank_img = rank_img.resize((200,200))
+            white_image.paste(rank_img,(85,550), rank_img)#rank_img works as a mask bcs pillow automaticly only uses the alpha channel of the image that it already has
         white_image.resize((500,333), Image.LANCZOS)
-        white_image.save('card.png', 'PNG')
-        await ctx.reply(file=discord.File('card.png'))#await ctx.reply(file=discord.File(file_to_send))
+        ram = BytesIO()#creates new ram
+        white_image.save(ram,format='PNG')#saves it in the ram
+        ram.seek(0)
+        file = discord.File(fp=ram, filename='stats_card.png')
+        await ctx.reply(file=file)#await ctx.reply(file=discord.File(file_to_send))
     except Exception as e:
         print(e)
         await ctx.reply('An error occoured while trying to execute this command!')
