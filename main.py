@@ -3,7 +3,6 @@ import os
 import random
 from dotenv import load_dotenv
 from discord.ext import commands, tasks
-import re
 from datetime import timedelta, datetime, timezone
 import json
 import difflib
@@ -12,10 +11,18 @@ import statistics
 import asyncio
 import random
 from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 import aiohttp
-from pathlib import Path
+from io import StringIO
+import pytesseract
+import platform
+import nudenet as image_nudity_detector
+import re
+import urllib
 load_dotenv() 
+
+if platform.system().lower() == 'windows':
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 strikes = {}
 intents = discord.Intents.default()
@@ -32,7 +39,10 @@ change_confirmations = []
 token = os.getenv('TOKEN')
 waiting_list  = {}
 d_face_reacts = ['skillissue', 'brofailed', 'rip', 'imagine']
+allowed_file_endings = ['txt']
 user_stats = {}
+full_logs = {}
+nudity_classification = image_nudity_detector.NudeDetector()
 
 with open('roles_requirements.json','r') as f:
     roles_requirements = json.load(f)
@@ -61,9 +71,20 @@ with open('en.txt', 'r') as f:
 with open('strikes.json', 'r', encoding = 'utf-8') as f:
     strikes = json.load(f)
 
+with open('logs.json', 'r') as f:
+    save_full_logs = json.load(f)
+    full_logs = {}
+    for time_str, user_msgs_at_time in save_full_logs.items():
+        time = datetime.fromisoformat(time_str)
+        if time not in full_logs.keys():
+            full_logs[time] = {}
+        for user, msgs in user_msgs_at_time.items():
+            user = int(user)
+            full_logs[time][user] = msgs 
+
 months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
 roles_imgs = {'owner': r'owner.png', 'mini mod': '','klassebot': r'bot.png', 'admin': r"admin.png", 'dev': r"dev.png", 'trial dev': r"trial_dev.png", 'elite member': r'Elite_member.png', 'member': r"member.png", 'beginner': r'beginner.png', 'spammer':''}
-
+ending_imgs = ['png','jpeg']
 admin_channel_id = 1466034381499007084
 bot_channel_id = 1466034381499007082
 welcome_channel_id = 1466034381499007083
@@ -184,9 +205,11 @@ async def on_ready():
     print(f'Logged in as bot {client}')
     is_dict_complete()
     is_waiting_expired.start()
+    is_dict_overflow.start()
 
 @client.event
 async def on_message(message):
+    global full_logs
     sideeye_reactions = ['trust me', 'trust me bro', '100%']
     skillissue_reactions = ['why doesnt','why doesn\'t','it doesn\'t work', 'it doesnt work','how do i', 'error','broken', 'i lost', 'i messed up']
     iq_reactions = ['actually', 'you can just','instead do']
@@ -237,7 +260,7 @@ async def on_message(message):
         #reacting to messages
         if message.content.lower().strip() in d_face_reacts:
             if random.randint(1, 10) == 1:
-                await message.add_reaction('\<:DFace:1470918226446782763>')
+                await message.add_reaction('\\<:DFace:1470918226446782763>')
                 return
     
         for text in sideeye_reactions:
@@ -256,7 +279,7 @@ async def on_message(message):
                     if random.randint(1,3) == 2:
                         await message.reply(random.choice(gif_reactions['skillissue']))
                         break
-                    await message.add_reaction(random.choice(['💀', '\<:embarassing:1471526438057410763>','🤡']))
+                    await message.add_reaction(random.choice(['💀', '\\<:embarassing:1471526438057410763>','🤡']))
                     break   
 
         for text in iq_reactions:
@@ -274,7 +297,7 @@ async def on_message(message):
                     if random.randint(1,3) == 2:
                         await message.reply(random.choice(gif_reactions['sus']))
                         break
-                    await message.add_reaction(random.choice(['🤨', '😳', '👀','\<:pause:1471529450712731860>' ]))
+                    await message.add_reaction(random.choice(['🤨', '😳', '👀','\\<:pause:1471529450712731860>' ]))
                     break
 
         for text in one_word_akward:
@@ -283,7 +306,7 @@ async def on_message(message):
                     if random.randint(1,3) == 2:
                         await message.reply(random.choice(gif_reactions['akward_silence']))
                         break
-                    await message.add_reaction(random.choice(['😐', '😶', '🦗','\<:embarassing:1471526438057410763>']))
+                    await message.add_reaction(random.choice(['😐', '😶', '🦗','\\<:embarassing:1471526438057410763>']))
                     break
 
         for text in npc_reactions:
@@ -292,7 +315,7 @@ async def on_message(message):
                     if random.randint(1,3) == 2:
                         await message.reply( random.choice(gif_reactions['npc_moments']))
                         break
-                    await message.add_reaction(random.choice(['🤖','\<:NPC:1471531032447684834>','\<:bot:1471531101381066886>']))
+                    await message.add_reaction(random.choice(['🤖','\\<:NPC:1471531032447684834>','\\<:bot:1471531101381066886>']))
                     break
 
         
@@ -302,15 +325,6 @@ async def on_message(message):
                 if random.randint(1,5) == 1:
                     await message.channel.send(random.choice(gif_reactions['fight_starting']))
                     break
-        #is_spam = False
-        #for user in is_user_spamming:
-       #     if user:
-       #         is_spam = True
-
-        #if is_spam:
-        #    if random.randint(1,4) == 2:
-        #        await message.channel.send(random.choice(gif_reactions['chaos']))
-
 
         if message.content.upper() == message.content and '!' in message.content:
             if random.randint(1,8) == 1:
@@ -331,11 +345,19 @@ async def on_message(message):
     elif not message.guild:#print('Message was sent in a dm.')
         return
     #logs the sent message
-    if message.author not in logs.keys():                       
-        logs[message.author] = {}
-    if message.created_at not in logs[message.author].keys():
-        logs[message.author][message.created_at]  = []
-    logs[message.author][message.created_at].append(message.content)
+    log(logs,message)
+    log(full_logs, message)
+    full_logs = sort_by_newest(full_logs)
+    save_full_logs = {}
+    for time, user_msgs_at_time in full_logs.items():
+        time = str(time)
+        if time not in save_full_logs.keys():
+            save_full_logs[time] = {}
+        for user, msgs in user_msgs_at_time.items():
+            user = str(user)
+            save_full_logs[time][user] = msgs
+    with open('logs.json', 'w') as f:
+        json.dump(save_full_logs, f)
 
     if message.channel != 'spam':
         await check_spam() #checks if the messages are spam
@@ -348,46 +370,162 @@ async def on_message(message):
     channel_id = message.channel.id
     user_message = str(message.content)
     print(f'Message {user_message} was sent by {username} in the following channel: {channel}')
+
+    #checks for slurs in the message function
+    async def check_slurs_without_punishment(text = None, has_file = False):
+        if text != None:
+            user_message = text
+        else:
+            user_message = message.content
+        if has_file != False:
+            reason = 'sending an image containing'
+        else:
+            reason = 'sending'
+        if channel != 'spam':
+            user_message = user_message.lower().strip('?’=,.\'.').replace('@', 'a').replace('1', 'i').replace('!', 'i').replace('ĝ','g').replace('é', 'e').replace('ř', 'r').replace('4','a').replace('1','i').replace('3', 'e').replace('5','s').replace('8', 'o')
+            for word in forbidden_words:
+                if word in user_message:
+                    return True, reason
+        return False, reason
     
-    #checks for slurs in the message
-    if channel != 'spam':
-        words_in_phrase = re.findall(r'\b\w+\b', user_message.lower()) #splits the message content into words
-        for word in words_in_phrase:
-            word = word.lower().strip('?’=,.\'.').replace('@', 'a').replace('1', 'i').replace('!', 'i').replace('ĝ','g').replace('é', 'e').replace('ř', 'r').replace('4','a').replace('1','i').replace('3', 'e').replace('5','s').replace('8', 'o')
-            if word in forbidden_words:
-                channel = client.get_channel(admin_channel_id) #admin channel
+    async def check_slurs(text = None, has_file = False):
+        is_slur, reason = await check_slurs_without_punishment(text,has_file)
+        if is_slur:     
+            channel_admin = client.get_channel(admin_channel_id) #admin channel
+            await add_strike_code(message.author, '1', await client.get_context(message))
+            try:
+                await message.author.send(f'You got one strike for {reason}: {word}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
+                await channel_admin.send(f'User {message.author.name} got one strike for {reason}: {word}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
+            except discord.Forbidden:
+                    await message.reply(f'User {username} got one strike for {reason}: {word}.\nThis message was sent in admin because I cannot send DM to {message.author} (DMs disabled or blocked).')
+            except Exception as e:
+                print(e)
+                await message.reply(f'An unexpected error occured while trying to send strike warning to {username}.\nError: {e}')
+            await delete_message(message)
+    
+    #returns a score between 0 and 1 about how save a img object is
+    async def check_image_safety(attachment_in_bytes:bytes):
+        risk = 0
+        with Image.open(BytesIO(attachment_in_bytes)) as img:
+            img  = img.resize((100,100))
+            text_on_img = await asyncio.to_thread(pytesseract.image_to_string,img)
+            if await check_slurs_without_punishment(text_on_img, True):
+                risk += 5
+                print('Unsafe image content')
+            filename = 'sent_img.png'
+            security_rating = await asyncio.to_thread(image_nudity_detector.detect ,filename)
+            print(security_rating)
+            if security_rating[filename]['unsafe'] > 0.7:
+                risk += 4
+            elif security_rating[filename]['unsafe'] > 0.75:
+                risk += 5 
+            elif security_rating[filename]['unsafe'] > 0.8:
+                risk += 6
+            if risk == 5 or risk == 4:
+                channel = client.get_channel(admin_channel_id)
+                await channel.send(f'Flagged image from user {message.author.name}.\nIts risk was rated {risk}/9.', reference=message)
+            elif risk > 5:
+                channel_admin = client.get_channel(id)
                 await add_strike_code(message.author, '1', await client.get_context(message))
+                reason = 'sending an inexplicit image'
                 try:
-                    await message.author.send(f'You got one strike for sayng: {word}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
-                    channel = client.get_channel(admin_channel_id)
-                    await channel.send(f'User {message.author.name} got one strike for sayng: {word}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
-                except discord.Forbidden:   
-                    await message.reply(f'User {username} got one strike for saying: {word}.\nThis message was sent in admin because I cannot send DM to {message.author} (DMs disabled or blocked).')
+                    await message.author.send(f'You got one strike for {reason}: {word}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
+                    await channel_admin.send(f'User {message.author.name} got one strike for {reason}: {word}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
+                except discord.Forbidden:
+                    await message.reply(f'User {username} got one strike for {reason}: {word}.\nThis message was sent in admin because I cannot send DM to {message.author} (DMs disabled or blocked).')
                 except Exception as e:
+                    print(e)
                     await message.reply(f'An unexpected error occured while trying to send strike warning to {username}.\nError: {e}')
                 await delete_message(message)
-                return
-        
-    #levels up the stats
-    user_stats[message.author.name]['xp'] += 5
-    user_stats[message.author.name]['message_count'] += 1
-    with open('stats.json', 'w') as f:
-        json.dump(user_stats, f)
-    await rank_check(message.author)
+    def is_it_img(img:bytes):
+        image_to_check = Image.open(BytesIO(url_image))
+        image_to_check.verify()
+        return True
     
+    #calls function to check for slurs and other not safe content 
+    urls = re.findall(r'https?://\S+', message.content)
+    async with aiohttp.ClientSession() as session:
+        for url in urls:
+            print('Found url')
+            try:
+                print('Opened Session')
+                async with session.head(url) as page:
+                    print('opened page')
+                    try:
+                        size_in_bytes = page.headers.get('Content-Length')#gets the data from the page label for type of the content like a label on a package about the package content
+                        if size_in_bytes != None:
+                            size_in_bytes = int(size_in_bytes)
+                            if size_in_bytes <= 20_000_000:
+                                async with session.get(url, timeout=10) as page:
+                                    url_image = await page.read()
+                                    try:
+                                        print('checking image')
+                                        print(type(url_image))
+                                        await asyncio.wait_for(asyncio.to_thread(is_it_img,url_image),timeout=1)
+                                        print('after check')
+                                    except UnidentifiedImageError:
+                                        continue
+                                    except TypeError:
+                                        print('Will delete')
+                                        await delete_message(message)
+                                        print('Why did it not delete')
+                                        print(type(message))
+                                        await message.channel.send('Please only use not expired image links.')
+                                        continue
+                                    except Exception as e:
+                                        print(e)
+                                        continue
+                                    print('Will check image safety')
+                                    await check_image_safety(url_image)
+                    except urllib.error.HTTPError:
+                        async with session.get(url) as page:
+                            bytes_downloaded = 0
+                            file_parts = []
+                            for file_part in page.content.iter_chunked(1024):
+                                bytes_downloaded += len(file_part)#gets how many bites long the file part is and adds it to the total
+                                if bytes_downloaded > 20_000_000:
+                                    raise(KeyError)
+                                file_parts.append(file_part)
+                            url_image = b''.join(file_parts)
+                    await check_image_safety(url_image)
+            except aiohttp.TimeoutError:
+                print('timed out')
+                await message.channel.send('Please only use not expired image links.')
+                await delete_message(message)
+            except KeyError:
+                channel = client.get_channel(admin_channel_id)
+                await channel.send(f'Flagged image from user {message.author.name}.\nIts image size was greater than 20MB/9.')
+                await channel.send(f'Message link {message.jump_url}')
 
-    #checks if the message was sent in another channel and if thats true it checks if the bot was mentioned.
-    if len(allowed_channels) > 0:
-        if channel_id not in allowed_channels.values(): #checks if the channel wich the message was sent in is allowed.
-            if client.user not in message.mentions and message.mentions != f'<{client.user.id}>':
-                return
-            if user_message.replace(f'<@{str(client.user.id)}>', '').strip().startswith(command_prefix):
-                    reply = await message.reply(f'Please use the bot commands channel for bot commands.', delete_after = 5) # later adapt it so it "pings" the bot commands channel.
-                    await asyncio.sleep(5)
-                    await delete_message(message)
-                    await delete_message(reply)
+        if message.attachments:
+            for attachment in message.attachments:
+                if any(attachment.filename.lower().endswith(ending) for ending in ending_imgs):
+                    attachment_in_bytes = await attachment.read()
+                    await check_image_safety(attachment_in_bytes)
+                            
+
+        await check_slurs()
+
+        #levels up the stats
+        user_stats[message.author.name]['xp'] += 5
+        user_stats[message.author.name]['message_count'] += 1
+        with open('stats.json', 'w') as f:
+            json.dump(user_stats, f)
+        await rank_check(message.author)
+
+
+        #checks if the message was sent in another channel and if thats true it checks if the bot was mentioned.
+        if len(allowed_channels) > 0:
+            if channel_id not in allowed_channels.values(): #checks if the channel wich the message was sent in is allowed.
+                if client.user not in message.mentions and message.mentions != f'<{client.user.id}>':
                     return
-            
+                if user_message.replace(f'<@{str(client.user.id)}>', '').strip().startswith(command_prefix):
+                        reply = await message.reply(f'Please use the bot commands channel for bot commands.', delete_after = 5) # later adapt it so it "pings" the bot commands channel.
+                        await asyncio.sleep(5)
+                        await delete_message(message)
+                        await delete_message(reply)
+                        return
+                
     #checks if the user was doing a confirmation
     if message.author in waiting_confirmations:
         if message.author in change_confirmations:
@@ -429,12 +567,18 @@ async def on_message(message):
         elif user_message.lower().strip('?’,.\'.') == 'who created you':
             await message.channel.send(f'I was created by the clases greatest Python programmer (even better than Telmo) called Rafael.')
         elif user_message.lower().strip('?\'') == 'why didnt my command work':
-            await message.channel.send(f'If your command wasn\'t answered by me it probably was because you either wrote it in another channel that is not the bot channel, \nyou wrote the false command or you just dont have enough permsions to use that command.')
-            
+            await message.channel.send(f'If your command wasn\'t answered by me it probably was because you either wrote it in another channel that is not the bot channel, \nyou wrote the false command or you just dont have enough permsions to use that command.') 
 
         else:
             await message.channel.send(random.choice(['Unnötige Frage.', 'Give it up twin🥀✌️', "Give it up bro.","Be serious bro.","That’s not it.","Bro please.","Come on bro.","That’s wild.","Bro thought this was smart.","That’s crazy. In a bad way.","Not happening.","Message rejected.","Try again.","Try harder.","Recalculate.","Re-evaluate your choices.","You are lost.","Completely lost.","Orientation missing.","Confidence was there. Logic wasn’t.","That ain’t it.","That’s tough bro.","Bro thought hes tough.","Delete that.","Let’s pretend that didn’t happen.","I’m ignoring this.","No comment.","I refuse.",'Bold move.',"Incorrect move.","Critical thinking left.", "Brain patch missing.","That changed nothing.","Energy wasted.","Time wasted.","Bro typed that confidently but confidence ≠ correctness.","Let’s not.","Just no.","You need a brain reset.","Minimal brain usage.","I’m distancing myself.","Bro why.","Explain yourself.","Just don’t.","Well that’s embarrassing.","This is not it.","I’m logging off mentally.","That’s below expectations. Way below.","Try again tomorrow.","That hurt to read.","Completely unnecessary.","Respectfully no. Disrespectfully also no.","Absolutely not.","At least you tried.", "No shot.","You can’t mean that.","That’s delusional (lightly).","You said that confidently too.","You lost me instantly.","That’s illegal logic.","You typed that willingly.","That’s not defendable.","You overcooked.","You committed too hard.","I’m disappointed in that one.","Even your mom would’ve double-checked that.","Even your mom expected better.","Your mom saw that and logged off.","Your mom would’ve taken five more seconds to write that correctly.","Even your mom knew that wasn’t it.","Even your mom wouldn’t defend that.","Even your mom would’ve googled it first.","Even your mom would’ve edited that.","Even your mom paused before that one.","Even your mom would’ve worded that better.","Even your mom would’ve structured that better."]))
 
+
+def log(log:dict,message:discord.Message):
+    if message.author.name not in log.keys():                       
+        log[message.author.id] = {}
+    if message.created_at not in log[message.author.id].keys():
+        log[message.author.id][message.created_at]  = []
+    log[message.author.id][message.created_at].append(message.content)
 
 @client.event
 async def on_member_update(before: discord.Member, after: discord.Member):
@@ -474,6 +618,20 @@ async def promote(old_role: discord.Role, new_role: discord.Role, member: discor
 async def ping(ctx):
     await ctx.send('Pong!')
 
+@tasks.loop(seconds=10)
+async def is_dict_overflow():
+    while len(full_logs) > 500:
+        full_logs.pop(next(iter(full_logs)))#removes the first entered key value pair
+    save_full_logs = {}
+    for time, user_msgs_at_time in full_logs.items():
+        time = str(time)
+        if time not in save_full_logs.keys():
+            save_full_logs[time] = {}
+        for user, msgs in user_msgs_at_time.items():
+            user = str(user)
+            save_full_logs[time][user] = msgs
+    with open('logs.json', 'w') as f:
+        json.dump(save_full_logs, f)
 
 @client.command()
 @commands.has_role('dev')
@@ -575,7 +733,7 @@ async def on_member_join(member: discord.Member):
     await channel.send(f'Welcome {member.name}!')
     guild = client.get_guild(server_id)
     role = discord.utils.get(guild.roles, name = 'beginner') 
-    give_role(member, role)
+    give_role_logic(member, role)
 
 @client.command()
 @commands.has_permissions(moderate_members=True)
@@ -873,14 +1031,92 @@ async def spam_punishment():
 
 @client.command()
 @commands.has_permissions(manage_messages=True)
-async def show_logs(ctx):
+async def show_logs(ctx,mbr = None, amount = 'all', sorting = False):
+    counter = 0
+    user_2 = None
+
+    if type(mbr) != discord.Member:
+        try:
+            mbr.id
+            user_2 = mbr
+        except AttributeError:
+            only_one = False
+            if type(mbr) != int:
+                if mbr != 'all':
+                    try:
+                        amount = int(amount)
+                    except ValueError:
+                        amount = 'all'
+                        if type(mbr) != bool:
+                            try:
+                                sorting = bool(mbr)
+                            except ValueError:
+                                sorting = False
+
+    if type(amount) != int:
+        if amount != 'all':
+            try:
+                amount = int(amount)
+            except ValueError:
+                amount = 'all'
+                if type(amount) != bool:
+                    try:
+                        sorting = bool(amount)
+                    except ValueError:
+                        sorting = False
+
+    if type(sorting) != bool:
+        try:
+            sorting = bool(sorting)
+        except ValueError:
+            sorting = False
+
     readable_logs = ''
-    for user, message_list in logs.items():
-        append_msg = (f'User: {user} sent: ')
-        for time, message in message_list.items():
-            append_msg += f'\nmessages: {message} at {time.strftime("%H:%M:%M")}'
-        readable_logs += f'{append_msg}\n'
-    await ctx.send(readable_logs)
+    if amount == 'all':
+        amount = 100#replace later with len all msgs
+    sorted_logs = sort_by_newest(full_logs)
+    user_msgs = {}
+    while counter <= amount:
+        for time, user_msgs_at_time in sorted_logs.items():
+            for user, msg_list in user_msgs_at_time.items():
+                if len(msg_list) == 0:
+                    continue
+            user_n = await client.fetch_user(user)
+            if sorting:
+                for msg in msg_list:
+                    if user not in user_msgs.keys():
+                        user_msgs[user] = f'\nUser {user_n.name} sent:'
+                    user_msgs[user] += f'\nmessage: {msg} at {time.strftime("%H:%M")}'
+            else:
+                for msg in msg_list:
+                    append_msg = (f'User {user_n.name} sent: ')
+                    append_msg += f'\nmessage: {msg} at {time.strftime("%H:%M")}'
+                readable_logs += f'{append_msg}\n'
+            counter +=1
+        break
+    if sorting:
+        for log in user_msgs.values():
+                    readable_logs += f'\n{log}'
+    if only_one:
+        await ctx.send(file = discord.File(StringIO(readable_logs[user_2.id]), filename = 'logs.txt'))
+    else:
+        await ctx.send(file =discord.File(StringIO(readable_logs), filename = 'logs.txt'))
+
+
+def sort_by_newest(dictionary:dict):
+    log_dict = dictionary.copy()
+    sort_full_logs = {}
+    for user,msg_list in log_dict.items():
+        for time,msgs in msg_list.items():
+            if isinstance(time,int):
+                time, user = user, time
+            if time not in sort_full_logs:
+                sort_full_logs[time] = {}
+            if user not in sort_full_logs[time]:
+                sort_full_logs[time][user] = []
+            for msg in msgs:
+                sort_full_logs[time][user].append(msg)
+    return dict(sorted(sort_full_logs.items()))#.items is crucial here to not loose connection to the values
 
 @client.command()
 async def gen(ctx, user_input: str):
@@ -893,7 +1129,12 @@ async def gen(ctx, user_input: str):
     with open('code.json', 'w') as f:
         json.dump(code_dict, f)
     if user_input in code_dict.keys():
-        await ctx.send(code_dict[user_input])
+        if len(code_dict[user_input]) < 2000:
+            await ctx.send(code_dict[user_input])
+        else:
+            ram = BytesIO(code_dict[user_input].encode('UTF-8'))
+            ram.name = f'{user_input}.py'#makes it so that discord treats it like a real file
+            await ctx.send(file = discord.File(ram))
     else:
         if any(role.name == 'dev' for role in ctx.author.roles):
             await ctx.send('Would you like to add this code? (y/n)')
@@ -911,11 +1152,24 @@ async def gen(ctx, user_input: str):
                 waiting_confirmations.append(ctx.author)
                 try:
                     code = await client.wait_for('message', timeout= 180 , check = check)
+                    if code.attachments and len(code.content.strip()) == 0:
+                        if len(code.attachments) == 1:
+                            if (code.attachments[0].filename.lower().endswith(fileend) for fileend in allowed_file_endings):
+                                content_in_bytes = await code.attachments[0].read()
+                                try:
+                                   code  = content_in_bytes.decode('UTF-8')
+                                except UnicodeDecodeError:
+                                    print(f'Error while trying to decode file')
+                    if isinstance(code, discord.Message):
+                        code = code.content
                     change_confirmations.append(ctx.author)
                 except TimeoutError:
                     await ctx.send('You took too long to respond.')
                     return
-                final_code = format_to_python(code.content)
+                if len(code) > 2000:
+                    final_code = format_to_code(code, 'python')
+                else:
+                    final_code = format_to_code(code, 'python')
                 code_dict[user_input] = final_code
                 with open('code.json', 'w') as f:
                     json.dump(code_dict, f)
@@ -924,10 +1178,13 @@ async def gen(ctx, user_input: str):
         else:
             await ctx.send(f'This gen command does not exist.\nIf you want a list of all possible !gen commands enter !gen help.')
         
-def format_to_python(code: str):
-    final_code = '```python\n'
-    final_code += code
-    final_code += '```'
+def format_to_code(code: str, language:str):
+    if len(code) >= 2000:
+        final_code = code
+    else:
+        final_code = f'```{language}\n'
+        final_code += code
+        final_code += '```'
     return final_code
 
 @client.command()
@@ -946,7 +1203,7 @@ async def gen_edit(ctx, user_input: str):
             return
         if code.content == 'exit':
             return
-        final_code = format_to_python(code.content)
+        final_code = format_to_code(code.content)
         code_dict[user_input] = final_code
         with open('code.json', 'w') as f:
                 json.dump(code_dict, f)
@@ -1064,9 +1321,11 @@ async def stats(ctx, user: discord.Member = None):
         server = ctx.guild
         index = server.id % 5#this is the server icon discord chooses out of the 5 using the same line
         server_avatar_url = server.icon.url if server.icon else f'https://cdn.discordapp.com/embed/avatars/{index}.png'
+
         async with aiohttp.ClientSession() as session: #starts a new http session, use it with paragraphs to use the function not the class
             async with session.get(server_avatar_url) as site: #opens the icon or default server icon site
                 server_avatar_in_bytes = await site.read() 
+
         img2,mask = PIL_round_img_obj(server_avatar_in_bytes,(90,90))
         white_image.paste(img2,(535,125),mask=mask)            
         current_xp = user_stats[member.name]['xp']
@@ -1142,9 +1401,9 @@ async def stats(ctx, user: discord.Member = None):
                 else:
                     response = f'There is no higher rank.'
             else:
-                response = f'It is not possible to progress with XP.\nIt is only possible to rank up\n{user_stats[member.name]['xp_for_next_rank']}.'
+                response = f'It is not possible to progress with XP.\nIt is only possible to rank up\n{user_stats[member.name]["xp_for_next_rank"]}.'
         else:
-            response = f'You need {user_stats[member.name]['xp_for_next_rank']} xp to rank up {user_stats[member.name]['next_rank']}\n(Every message gives 5xp).\n'
+            response = f'You need {user_stats[member.name]["xp_for_next_rank"]} xp to rank up {user_stats[member.name]["next_rank"]}\n(Every message gives 5xp).\n'
         counter = 0
         for split in user_stats[member.name]['join_date'].split('.'):
             if counter == 0:
@@ -1158,18 +1417,18 @@ async def stats(ctx, user: discord.Member = None):
         cords = (x, y-50)
         draw = PIL_text_obj(draw, cords, txt_to_dp,font_size= font_size+10)
         cords = cords[0], cords[1] + extra + 60
-        draw = PIL_text_obj(draw,cords, f'Messages        {user_stats[member.name]['message_count']}',font_size= font_size)
+        draw = PIL_text_obj(draw,cords, f'Messages        {user_stats[member.name]["message_count"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
-        draw = PIL_text_obj(draw,cords, f'Rank                {user_stats[member.name]['rank']}',font_size= font_size)
+        draw = PIL_text_obj(draw,cords, f'Rank                {user_stats[member.name]["rank"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
-        draw = PIL_text_obj(draw,cords, f'Next rank         {user_stats[member.name]['next_rank']}',font_size= font_size)
+        draw = PIL_text_obj(draw,cords, f'Next rank         {user_stats[member.name]["next_rank"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
         draw = PIL_text_obj(draw,cords, f'Joined              {date}',font_size= font_size)
         cords = cords[0], cords[1] + extra
-        draw = PIL_text_obj(draw,cords, f'Total XP           {user_stats[member.name]['xp']}',font_size= font_size)
+        draw = PIL_text_obj(draw,cords, f'Total XP           {user_stats[member.name]["xp"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
         draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
-        rank_img = user_stats[member.name]['img']
+        rank_img = user_stats[member.name]["img"]
         if rank_img != '':
             try:
                 with Image.open(rank_img, 'r') as rank_img2:
@@ -1187,10 +1446,12 @@ async def stats(ctx, user: discord.Member = None):
             white_image.paste(rank_img,(85,550), rank_img)#rank_img works as a mask bcs pillow automaticly only uses the alpha channel of the image that it already has
         white_image.resize((500,333), Image.LANCZOS)
         ram = BytesIO()#creates new ram
-        white_image.save(ram,format='PNG')#saves it in the ram
+        white_image.save(ram, format='PNG')#saves it in the ram
         ram.seek(0)
         file = discord.File(fp=ram, filename='stats_card.png')
-        await ctx.reply(file=file)#await ctx.reply(file=discord.File(file_to_send))
+        await ctx.reply(file=file)
+    except discord.Forbidden:
+        await ctx.reply('I do not have permissions to send files in this channel.\nIt is probably deactivated for the bot or for everyone to attach files.')
     except Exception as e:
         print(e)
         await ctx.reply('An error occoured while trying to execute this command!')
@@ -1221,7 +1482,7 @@ def PIL_round_img_obj(img, size = None):
         #puts the mask over the image so only the part inside the circle is visible
         rounded_img = Image.new('RGBA', (width, height), (0,0,0,0))#creates a new Image object with the image size of the full mask and of the image to round
         rounded_img.paste(img, (0,0), mask=mask)#mask is not only just used as out it over the image but it is used as only show whats visible inside and cut the rest away its 0,0 because 0,0 is in the top left 
-        return rounded_img, mask    
+        return rounded_img, mask   
 
 for cmd in client.commands:
     commands_list.append(cmd.name) 
