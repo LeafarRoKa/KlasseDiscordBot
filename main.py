@@ -33,7 +33,7 @@ client = commands.Bot(command_prefix= command_prefix, intents = intents)
 commands_list = []
 logs = {}
 is_user_spamming = {}
-forbidden_words = ['67']
+forbidden_words = []
 waiting_confirmations = []
 change_confirmations = []
 token = os.getenv('TOKEN')
@@ -56,10 +56,6 @@ with open('allowed_channels.json', 'r') as f:
 with open('code.json', 'r') as f:
     code_dict = json.load(f)
 
-with open('fr.txt', 'r') as f:
-    for word in set(f):
-        forbidden_words.append(word.strip('\n'))
-
 with open('de.txt', 'r') as f:
     for word in set(f):
         forbidden_words.append(word.strip('\n'))
@@ -81,6 +77,7 @@ with open('logs.json', 'r') as f:
         for user, msgs in user_msgs_at_time.items():
             user = int(user)
             full_logs[time][user] = msgs 
+
 
 months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
 roles_imgs = {'owner': r'owner.png', 'mini mod': '','klassebot': r'bot.png', 'admin': r"admin.png", 'dev': r"dev.png", 'trial dev': r"trial_dev.png", 'elite member': r'Elite_member.png', 'member': r"member.png", 'beginner': r'beginner.png', 'spammer':''}
@@ -344,6 +341,7 @@ async def on_message(message):
         return
     elif not message.guild:#print('Message was sent in a dm.')
         return
+    
     #logs the sent message
     log(logs,message)
     log(full_logs, message)
@@ -574,7 +572,7 @@ async def on_message(message):
 
 
 def log(log:dict,message:discord.Message):
-    if message.author.name not in log.keys():                       
+    if message.author.id not in log.keys():                       
         log[message.author.id] = {}
     if message.created_at not in log[message.author.id].keys():
         log[message.author.id][message.created_at]  = []
@@ -727,13 +725,14 @@ async def remove_all_roles(ctx, role: discord.Role):
             await ctx.send('An unexpected Error has occoured please contact the Bot owner.')
 
 @client.event
-
 async def on_member_join(member: discord.Member):
     channel =  client.get_channel(welcome_channel_id)#welcome channel
-    await channel.send(f'Welcome {member.name}!')
+    guild = client.get_guild(server_id)
+    await channel.send(f'Welcome {member.display_name} to the {guild.name} server!')
     guild = client.get_guild(server_id)
     role = discord.utils.get(guild.roles, name = 'beginner') 
-    give_role_logic(member, role)
+    await give_role_logic(member, role)
+    is_dict_complete()
 
 @client.command()
 @commands.has_permissions(moderate_members=True)
@@ -830,7 +829,11 @@ async def set_strikes_code(ctx, member: discord.Member, amount ='1'):
 async def strikes_punishments(member: discord.Member, ctx  = None):
     channel =  client.get_channel(admin_channel_id) #admin channel
     guild = client.get_guild(server_id)
-    old_role = discord.utils.get(guild.roles, name = user_stats[member.name]['rank'])
+    if user_stats[member.name]['rank'] == 'owner':
+        name = 'Owner'
+    else:
+        name= user_stats[member.name]['rank'] 
+    old_role = discord.utils.get(guild.roles, name =name )#it is called that way to save it as an old role if the user recieves spammer
     spammer = discord.utils.get(guild.roles, name= 'spammer')
     if old_role.name == 'owner' or old_role.name == 'admin' or old_role.name == 'mini mod' or old_role.name == 'dev' or old_role.name == 'trial dev':
         if strikes[member.name] < roles_requirements[old_role.name]['strikes']+ 10:
@@ -1031,10 +1034,9 @@ async def spam_punishment():
 
 @client.command()
 @commands.has_permissions(manage_messages=True)
-async def show_logs(ctx,mbr = None, amount = 'all', sorting = False):
+async def show_logs(ctx,mbr = None, amount = 'all', sorting = False): # TODO Make it so that 
     counter = 0
     user_2 = None
-
     if type(mbr) != discord.Member:
         try:
             mbr.id
@@ -1073,7 +1075,7 @@ async def show_logs(ctx,mbr = None, amount = 'all', sorting = False):
 
     readable_logs = ''
     if amount == 'all':
-        amount = 100#replace later with len all msgs
+        amount = 100 #TODO: replace later with len all msgs
     sorted_logs = sort_by_newest(full_logs)
     user_msgs = {}
     while counter <= amount:
@@ -1081,12 +1083,18 @@ async def show_logs(ctx,mbr = None, amount = 'all', sorting = False):
             for user, msg_list in user_msgs_at_time.items():
                 if len(msg_list) == 0:
                     continue
-            user_n = await client.fetch_user(user)
+            try:
+                if user_n.id != user:
+                    user_n =  ctx.guild.get_member(user)
+            except UnboundLocalError:
+                user_n =  ctx.guild.get_member(user)
+            if user_n == None:
+                user_n =  await client.fetch_user(user)
             if sorting:
                 for msg in msg_list:
                     if user not in user_msgs.keys():
                         user_msgs[user] = f'\nUser {user_n.name} sent:'
-                    user_msgs[user] += f'\nmessage: {msg} at {time.strftime("%H:%M")}'
+                    user_msgs[user] += f'\nmessage: {msg} at {time.strftime("%D %H:%M")}'
             else:
                 for msg in msg_list:
                     append_msg = (f'User {user_n.name} sent: ')
@@ -1119,7 +1127,7 @@ def sort_by_newest(dictionary:dict):
     return dict(sorted(sort_full_logs.items()))#.items is crucial here to not loose connection to the values
 
 @client.command()
-async def gen(ctx, user_input: str):
+async def gen(ctx, user_input: str): # TODO Make it so that you can do smth like gen(first command(if this command endswith : + 4 spaces , ; (go back four spaces,(, adds a newline))) ) also mayber add a gen cmd for another language
     all_descriptions = 'Avalible code is:'
     for description in code_dict.keys():
         if description == 'help':
@@ -1211,7 +1219,7 @@ async def gen_edit(ctx, user_input: str):
         await ctx.send('This code description does not exist in the code dict.')
          
 @client.command()
-@commands.has_role('dev')
+@commands.has_role('dev') # TODO make it so that also higher roles than dev can acces this command also automaticly including all rules with admin acces and the owner
 async def gen_del(ctx, user_input: str):
     if user_input in code_dict.keys():
         def check(msg: discord.Message):
@@ -1235,7 +1243,7 @@ async def gen_del(ctx, user_input: str):
 @client.command()
 @commands.has_permissions(manage_messages = True)
 @commands.bot_has_permissions(manage_messages=True)
-async def clear_channel(ctx, channel_id: int = None):
+async def clear_channel (ctx, channel_id: int = None):
     try:
         channel_name =   ctx.guild.get_channel(admin_channel_id).name 
     except:
