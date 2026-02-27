@@ -19,10 +19,12 @@ import platform
 import nudenet as image_nudity_detector
 import re
 import urllib
-load_dotenv() 
+load_dotenv('data/.env') 
 
 if platform.system().lower() == 'windows':
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+elif platform.system().lower() == 'linux':
+    pytesseract.pytesseract.tesseract_cmd = r"/usr/bin/tesseract"
 
 strikes = {}
 intents = discord.Intents.default()
@@ -44,30 +46,30 @@ user_stats = {}
 full_logs = {}
 nudity_classification = image_nudity_detector.NudeDetector()
 
-with open('roles_requirements.json','r') as f:
+with open(r'data\roles_requirements.json','r') as f:
     roles_requirements = json.load(f)
 
-with open('stats.json', 'r') as f:
+with open(r'data\stats.json', 'r') as f:
     user_stats = json.load(f)
 
-with open('allowed_channels.json', 'r') as f:
+with open(r'data\allowed_channels.json', 'r') as f:
     allowed_channels = json.load(f)
 
-with open('code.json', 'r') as f:
+with open(r'data\code.json', 'r') as f:
     code_dict = json.load(f)
 
-with open('de.txt', 'r') as f:
+with open(r'data\de.txt', 'r') as f:
     for word in set(f):
         forbidden_words.append(word.strip('\n'))
 
-with open('en.txt', 'r') as f:
+with open(r'data\en.txt', 'r') as f:
     for word in set(f):
         forbidden_words.append(word.strip('\n'))
 
-with open('strikes.json', 'r', encoding = 'utf-8') as f:
+with open(r'data\strikes.json', 'r', encoding = 'utf-8') as f:
     strikes = json.load(f)
 
-with open('logs.json', 'r') as f:
+with open(r'data\logs.json', 'r') as f:
     save_full_logs = json.load(f)
     full_logs = {}
     for time_str, user_msgs_at_time in save_full_logs.items():
@@ -80,7 +82,7 @@ with open('logs.json', 'r') as f:
 
 
 months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
-roles_imgs = {'owner': r'owner.png', 'mini mod': '','klassebot': r'bot.png', 'admin': r"admin.png", 'dev': r"dev.png", 'trial dev': r"trial_dev.png", 'elite member': r'Elite_member.png', 'member': r"member.png", 'beginner': r'beginner.png', 'spammer':''}
+roles_imgs = {'owner': r'images\owner.png', 'mini mod': '','klassebot': r'images\bot.png', 'admin': r"images\admin.png", 'dev': r"images\dev.png", 'trial dev': r"images\trial_dev.png", 'elite member': r'images\Elite_member.png', 'member': r"images\member.png", 'beginner': r'images\beginner.png', 'spammer':''}
 ending_imgs = ['png','jpeg']
 admin_channel_id = 1466034381499007084
 bot_channel_id = 1466034381499007082
@@ -126,12 +128,12 @@ def is_dict_complete():
         for member in server.members:
             if member.name not in strikes.keys() and member.name != client.user.name:
                 strikes[member.name] = 0
-                with open('strikes.json', 'w') as f:
+                with open(r'data\strikes.json', 'w') as f:
                     json.dump(strikes, f)
             if member.name not in user_stats.keys():
                 user_stats[member.name] = {'message_count': 0, 'join_date': member.joined_at.strftime('%d.%m.%Y'),'xp': 0 }
                 update_rank(member)
-                with open('json.stats', 'w') as f:
+                with open(r'data\json.stats', 'w') as f:
                     json.dump(user_stats, f)
 
 def update_rank(member: discord.Member):
@@ -194,7 +196,7 @@ def update_rank(member: discord.Member):
         else:
             user_stats[member.name]['xp_for_next_rank'] = promotion_path
 
-    with open('stats.json', 'w') as f:
+    with open(r'data\stats.json', 'w') as f:
         json.dump(user_stats, f)
 
 @client.event
@@ -243,7 +245,7 @@ async def on_message(message):
     if message.author == client.user:
         user_stats[message.author.name]['xp'] += 5
         user_stats[message.author.name]['message_count'] += 1
-        with open('stats.json', 'w') as f:
+        with open(r'data\stats.json', 'w') as f:
             json.dump(user_stats, f)
         return
     
@@ -354,7 +356,7 @@ async def on_message(message):
         for user, msgs in user_msgs_at_time.items():
             user = str(user)
             save_full_logs[time][user] = msgs
-    with open('logs.json', 'w') as f:
+    with open(r'data\logs.json', 'w') as f:
         json.dump(save_full_logs, f)
 
     if message.channel != 'spam':
@@ -383,11 +385,11 @@ async def on_message(message):
             user_message = user_message.lower().strip('?’=,.\'.').replace('@', 'a').replace('1', 'i').replace('!', 'i').replace('ĝ','g').replace('é', 'e').replace('ř', 'r').replace('4','a').replace('1','i').replace('3', 'e').replace('5','s').replace('8', 'o')
             for word in forbidden_words:
                 if word in user_message:
-                    return True, reason
-        return False, reason
+                    return True, reason, word
+        return False, reason, ""
     
     async def check_slurs(text = None, has_file = False):
-        is_slur, reason = await check_slurs_without_punishment(text,has_file)
+        is_slur, reason, word = await check_slurs_without_punishment(text,has_file)
         if is_slur:     
             channel_admin = client.get_channel(admin_channel_id) #admin channel
             await add_strike_code(message.author, '1', await client.get_context(message))
@@ -407,10 +409,11 @@ async def on_message(message):
         with Image.open(BytesIO(attachment_in_bytes)) as img:
             img  = img.resize((100,100))
             text_on_img = await asyncio.to_thread(pytesseract.image_to_string,img)
-            if await check_slurs_without_punishment(text_on_img, True):
+            is_slur, _, _ = await check_slurs_without_punishment(text_on_img, True)
+            if is_slur:
                 risk += 5
                 print('Unsafe image content')
-            filename = 'sent_img.png'
+            filename = r'images\sent_img.png'
             security_rating = await asyncio.to_thread(image_nudity_detector.detect ,filename)
             print(security_rating)
             if security_rating[filename]['unsafe'] > 0.7:
@@ -423,14 +426,14 @@ async def on_message(message):
                 channel = client.get_channel(admin_channel_id)
                 await channel.send(f'Flagged image from user {message.author.name}.\nIts risk was rated {risk}/9.', reference=message)
             elif risk > 5:
-                channel_admin = client.get_channel(id)
+                channel_admin = client.get_channel(admin_channel_id)
                 await add_strike_code(message.author, '1', await client.get_context(message))
                 reason = 'sending an inexplicit image'
                 try:
-                    await message.author.send(f'You got one strike for {reason}: {word}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
-                    await channel_admin.send(f'User {message.author.name} got one strike for {reason}: {word}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
+                    await message.author.send(f'You got one strike for {reason}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
+                    await channel_admin.send(f'User {message.author.name} got one strike for {reason}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
                 except discord.Forbidden:
-                    await message.reply(f'User {username} got one strike for {reason}: {word}.\nThis message was sent in admin because I cannot send DM to {message.author} (DMs disabled or blocked).')
+                    await message.reply(f'User {username} got one strike for {reason}.\nThis message was sent in admin because I cannot send DM to {message.author} (DMs disabled or blocked).')
                 except Exception as e:
                     print(e)
                     await message.reply(f'An unexpected error occured while trying to send strike warning to {username}.\nError: {e}')
@@ -507,7 +510,7 @@ async def on_message(message):
         #levels up the stats
         user_stats[message.author.name]['xp'] += 5
         user_stats[message.author.name]['message_count'] += 1
-        with open('stats.json', 'w') as f:
+        with open(r'data\stats.json', 'w') as f:
             json.dump(user_stats, f)
         await rank_check(message.author)
 
@@ -599,7 +602,7 @@ async def promote(old_role: discord.Role, new_role: discord.Role, member: discor
     await remove_role_logic(member, old_role)
     await give_role_logic(member, new_role)
     user_stats[member.name]['xp'] = 0
-    with open('stats.json', 'w') as f:
+    with open(r'data\stats.json', 'w') as f:
             json.dump(user_stats, f)
     update_rank(member)
     try:
@@ -628,7 +631,7 @@ async def is_dict_overflow():
         for user, msgs in user_msgs_at_time.items():
             user = str(user)
             save_full_logs[time][user] = msgs
-    with open('logs.json', 'w') as f:
+    with open(r'data\logs.json', 'w') as f:
         json.dump(save_full_logs, f)
 
 @client.command()
@@ -638,7 +641,7 @@ async def set_xp(ctx, member: discord.Member, amount):
     if type(amount) != int:
         amount = int(amount)
     user_stats[member.name]['xp'] = amount
-    with open('stats.json', 'w') as f:
+    with open(r'data\stats.json', 'w') as f:
         json.dump(user_stats, f)
     await ctx.send(f'succecfully set {member.name}\'s xp to {amount}.')
 
@@ -836,7 +839,7 @@ async def strikes_punishments(member: discord.Member, ctx  = None):
     old_role = discord.utils.get(guild.roles, name =name )#it is called that way to save it as an old role if the user recieves spammer
     spammer = discord.utils.get(guild.roles, name= 'spammer')
     if old_role.name == 'owner' or old_role.name == 'admin' or old_role.name == 'mini mod' or old_role.name == 'dev' or old_role.name == 'trial dev':
-        if strikes[member.name] < roles_requirements[old_role.name]['strikes']+ 10:
+        if strikes[member.name] < roles_requirements.get(old_role.name, {}).get('strikes', 0) + 10:
             return
     if channel is None:
         print('Could not find channel with the set channel ID.')
@@ -853,7 +856,7 @@ async def strikes_punishments(member: discord.Member, ctx  = None):
     elif strikes[member.name] >= 3 and strikes[member.name] <= 19:
         user_stats[member.name]['role_before_spam'] = old_role.name
         await promote(old_role, spammer, member)
-        with open('stats.json', 'w') as f:
+        with open(r'data\stats.json', 'w') as f:
             json.dump(user_stats, f)
         ban_time = timedelta(seconds = 100)
         if strikes[member.name] == 4:
@@ -899,23 +902,18 @@ async def strikes_punishments(member: discord.Member, ctx  = None):
     elif strikes[member.name] >= 20 and strikes[member.name] <= 40:
         user_stats[member.name]['role_before_spam'] = old_role.name
         await promote(old_role, spammer, member)
-        with open('stats.json', 'w') as f:
+        with open(r'data\stats.json', 'w') as f:
             json.dump(user_stats, f)
         await timeout_logic(member, '1d', reason=f'The user has {strikes[member.name]} strikes.')
 
     elif strikes[member.name] > 40:
         await member.kick(reason='You were kicked because you currently had 40 strikes on the server.\nPlease contact the server admins if you think this treatment is unfair.')
     
-    with open('strikes.json', 'w') as f:
+    with open(r'data\strikes.json', 'w') as f:
         json.dump(strikes, f)
 
 
-async def set_strikes_code(ctx, member: discord.Member, amount ='1'):
-    if type(amount) != int:
-        amount = int(amount)
-    strikes[member.name] = amount
-    await strikes_punishments(member)
-    await ctx.send(f'The strikes of {member.name} were successfully set to {amount}')
+
 
 
 @tasks.loop(seconds= 10)
@@ -927,7 +925,7 @@ async def is_waiting_expired():
         if waiting_list[member] <= datetime.now(timezone.utc):
             new_role = discord.utils.get(guild.roles, name= user_stats[member.name]['role_before_spam'])
             user_stats[member.name].pop('role_before_spam')
-            with open('stats.json', 'w') as f:
+            with open(r'data\stats.json', 'w') as f:
                 json.dump(user_stats, f)
             await promote(spammer,new_role, member)
             members_to_remove.append(member)
@@ -1013,10 +1011,10 @@ async def check_spam_without_punishment():
         else:
             is_user_spamming[user] = False
 
-    for user in is_user_spamming:
-        if user == True:
+    for user, is_spam in is_user_spamming.items():
+        if is_spam:
             return True
-        return False
+    return False
 
 async def check_spam():
     await check_spam_without_punishment()
@@ -1037,6 +1035,7 @@ async def spam_punishment():
 async def show_logs(ctx,mbr = None, amount = 'all', sorting = False): # TODO Make it so that 
     counter = 0
     user_2 = None
+    only_one = False
     if type(mbr) != discord.Member:
         try:
             mbr.id
@@ -1083,11 +1082,7 @@ async def show_logs(ctx,mbr = None, amount = 'all', sorting = False): # TODO Mak
             for user, msg_list in user_msgs_at_time.items():
                 if len(msg_list) == 0:
                     continue
-            try:
-                if user_n.id != user:
-                    user_n =  ctx.guild.get_member(user)
-            except UnboundLocalError:
-                user_n =  ctx.guild.get_member(user)
+            user_n =  ctx.guild.get_member(user)
             if user_n == None:
                 user_n =  await client.fetch_user(user)
             if sorting:
@@ -1162,7 +1157,7 @@ async def gen(ctx, user_input: str): # TODO Make it so that you can do smth like
                     code = await client.wait_for('message', timeout= 180 , check = check)
                     if code.attachments and len(code.content.strip()) == 0:
                         if len(code.attachments) == 1:
-                            if (code.attachments[0].filename.lower().endswith(fileend) for fileend in allowed_file_endings):
+                            if any(code.attachments[0].filename.lower().endswith(fileend) for fileend in allowed_file_endings):
                                 content_in_bytes = await code.attachments[0].read()
                                 try:
                                    code  = content_in_bytes.decode('UTF-8')
@@ -1179,7 +1174,7 @@ async def gen(ctx, user_input: str): # TODO Make it so that you can do smth like
                 else:
                     final_code = format_to_code(code, 'python')
                 code_dict[user_input] = final_code
-                with open('code.json', 'w') as f:
+                with open(r'data\code.json', 'w') as f:
                     json.dump(code_dict, f)
             elif response.content.lower() == 'n':
                 return
@@ -1227,12 +1222,12 @@ async def gen_del(ctx, user_input: str):
         await ctx.send('Are you sure that you want to delete the code for this command? (y/n)')
         waiting_confirmations.append(ctx.author)
         try:
-            respnse = await client.wait_for('message', timeout= 100 , check = check)
+            response = await client.wait_for('message', timeout= 100 , check = check)
             change_confirmations.append(ctx.author)
         except TimeoutError:
             await ctx.send('You took too long to respond.')
             return
-        if respnse.content == 'y':
+        if response.content == 'y':
             code_dict.pop(user_input)
         else:
             return
@@ -1322,7 +1317,7 @@ async def stats(ctx, user: discord.Member = None):
     try:
         avatar_in_bytes = await member.display_avatar.read() if member.avatar else await member.default_avatar.read()
         rounded_img, mask = PIL_round_img_obj(avatar_in_bytes, (395,395))
-        with Image.open('base.png','r') as img2:
+        with Image.open(r'images\base.png','r') as img2:
             white_image = img2.copy()#.copy is absolutly needed here because it would else just reference the object that doesnt exist anymore because with closes it after
         white_image.paste(rounded_img, (7,85), mask=mask)
         width, height = white_image.size
