@@ -1,5 +1,2 @@
-from nudenet import NudeClassifier
-
-print("Creating classifier...")
-classifier = NudeClassifier()
-print("Loaded successfully.")
+mylist = [1,3,45]
+print(mylist.sort(reverse=True))

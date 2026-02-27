@@ -42,6 +42,7 @@ d_face_reacts = ['skillissue', 'brofailed', 'rip', 'imagine']
 allowed_file_endings = ['txt']
 user_stats = {}
 full_logs = {}
+badges_imgs  = {}
 nudity_classification = image_nudity_detector.NudeDetector()
 
 with open('roles_requirements.json','r') as f:
@@ -129,7 +130,7 @@ def is_dict_complete():
                 with open('strikes.json', 'w') as f:
                     json.dump(strikes, f)
             if member.name not in user_stats.keys():
-                user_stats[member.name] = {'message_count': 0, 'join_date': member.joined_at.strftime('%d.%m.%Y'),'xp': 0 }
+                user_stats[member.name] = {'message_count': 0, 'join_date': member.joined_at.strftime('%d.%m.%Y'),'xp': 0, 'badges': []}
                 update_rank(member)
                 with open('json.stats', 'w') as f:
                     json.dump(user_stats, f)
@@ -910,14 +911,6 @@ async def strikes_punishments(member: discord.Member, ctx  = None):
         json.dump(strikes, f)
 
 
-async def set_strikes_code(ctx, member: discord.Member, amount ='1'):
-    if type(amount) != int:
-        amount = int(amount)
-    strikes[member.name] = amount
-    await strikes_punishments(member)
-    await ctx.send(f'The strikes of {member.name} were successfully set to {amount}')
-
-
 @tasks.loop(seconds= 10)
 async def is_waiting_expired():
     guild = client.get_guild(server_id)#server ID
@@ -1491,6 +1484,13 @@ def PIL_round_img_obj(img, size = None):
         rounded_img = Image.new('RGBA', (width, height), (0,0,0,0))#creates a new Image object with the image size of the full mask and of the image to round
         rounded_img.paste(img, (0,0), mask=mask)#mask is not only just used as out it over the image but it is used as only show whats visible inside and cut the rest away its 0,0 because 0,0 is in the top left 
         return rounded_img, mask   
+
+
+@client.command()
+@commands.has_permissions(manage_messages=True)
+async def add_bade(ctx, badge_name: str):
+    if badge_name in badges_imgs.keys():
+        
 
 for cmd in client.commands:
     commands_list.append(cmd.name) 
