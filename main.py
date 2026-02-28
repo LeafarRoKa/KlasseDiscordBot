@@ -428,7 +428,7 @@ async def on_message(message):
             elif risk > 5:
                 channel_admin = client.get_channel(admin_channel_id)
                 await add_strike_code(message.author, '1', await client.get_context(message))
-                reason = 'sending an inexplicit image'
+                reason = 'sending an explicit image'
                 try:
                     await message.author.send(f'You got one strike for {reason}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
                     await channel_admin.send(f'User {message.author.name} got one strike for {reason}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
