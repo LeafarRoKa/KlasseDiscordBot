@@ -438,10 +438,6 @@ async def on_message(message):
                     print(e)
                     await message.reply(f'An unexpected error occured while trying to send strike warning to {username}.\nError: {e}')
                 await delete_message(message)
-    def is_it_img(img:bytes):
-        image_to_check = Image.open(BytesIO(url_image))
-        image_to_check.verify()
-        return True
     
     #calls function to check for slurs and other not safe content 
     urls = re.findall(r'https?://\S+', message.content)
@@ -462,7 +458,8 @@ async def on_message(message):
                                     try:
                                         print('checking image')
                                         print(type(url_image))
-                                        await asyncio.wait_for(asyncio.to_thread(is_it_img,url_image),timeout=1)
+                                        image_to_check = Image.open(BytesIO(url_image))
+                                        image_to_check.verify()
                                         print('after check')
                                     except UnidentifiedImageError:
                                         continue
