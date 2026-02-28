@@ -124,6 +124,7 @@ async def on_command_error(ctx, error):
     else:
         await ctx.send('An error has occured while trying to execute this command.')
 
+
 def is_dict_complete():
     for server in client.guilds:
         for member in server.members:
