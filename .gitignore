@@ -12,9 +12,11 @@ __pycache__/
 data/.env
 .env
 
+
 # Dynamic Data files (Logs & User Stats)
 data/*.json
 data/*.stats
+images/sent_img.png
 
 # OS generated files
 .DS_Store
