@@ -1,0 +1,6 @@
+﻿discord.py>=2.3.0
+python-dotenv>=1.0.0
+Pillow>=9.5.0
+pytesseract>=0.3.10
+aiohttp>=3.8.4
+git+https://github.com/notAI-tech/NudeNet.git
