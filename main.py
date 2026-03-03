@@ -640,6 +640,7 @@ async def on_message(message:discord.Message):
                         await delete_message(message)
                         await delete_message(reply)
                         return
+        
                 
     #checks if the user was doing a confirmation
     if message.author.id in waiting_confirmations:
