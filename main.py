@@ -27,10 +27,12 @@ if platform.system().lower() == 'windows':
 elif platform.system().lower() == 'linux':
     pytesseract.pytesseract.tesseract_cmd = r"/usr/bin/tesseract"
 
+text_detection_ai = easyocr.Reader(['en']) 
 strikes = {}
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.guilds = True
 command_prefix = '!'
 client = commands.Bot(command_prefix= command_prefix, intents = intents)
 commands_list = []
@@ -323,8 +325,11 @@ async def response_waiting(ctx:commands.Context, time = 30):
     return response
 
 #checks for slurs in the message function
-async def check_slurs_without_punishment(message: discord.Message , text = None, has_file = False):
-    channel = message.channel.name
+async def check_slurs_without_punishment(message: discord.Message|commands.Context =  None, text = None, has_file = False):
+    if message != None: 
+        channel = message.channel.name
+    else:
+        channel = 'general'
     if text != None:
         user_message = text
     else:
