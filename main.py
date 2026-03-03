@@ -3,7 +3,7 @@ import os
 import random
 from dotenv import load_dotenv
 from discord.ext import commands, tasks
-from datetime import timedelta, datetime, timezone
+from datetime import timedelta, datetime, timezone, date, time
 import json
 import difflib
 import math
@@ -33,7 +33,7 @@ intents.members = True
 command_prefix = '!'
 client = commands.Bot(command_prefix= command_prefix, intents = intents)
 commands_list = []
-logs = {}
+logs_temp = {}
 is_user_spamming = {}
 forbidden_words = []
 waiting_confirmations = []
@@ -45,19 +45,21 @@ allowed_file_endings = ['txt']
 user_stats = {}
 full_logs = {}
 badges_imgs  = {}
+to_watch = {}
+suggestions_closed = False
+winner_to_watch_data = {}
+winner_content = None
+winner_user = None
 nudity_classification = nudenet.NudeDetector()
+event_title = 'Watch party'
+event_description = 'watching one randomly selected suggestion.'
+days_until_sunday = (6 - date.today().weekday()) % 7
+if days_until_sunday == 0:  # If today is Saturday, move to next week
+    days_until_sunday = 7
+next_sunday = datetime.combine(date.today()+ timedelta(days=days_until_sunday), time(16))#16 is the time of the day that we watch
 
 with open(r'data\roles_requirements.json','r') as f:
     roles_requirements = json.load(f)
-
-with open(r'data\stats.json', 'r') as f:
-    user_stats = json.load(f)
-
-with open(r'data\allowed_channels.json', 'r') as f:
-    allowed_channels = json.load(f)
-
-with open(r'data\code.json', 'r') as f:
-    code_dict = json.load(f)
 
 with open(r'data\de.txt', 'r') as f:
     for word in set(f):
@@ -67,28 +69,115 @@ with open(r'data\en.txt', 'r') as f:
     for word in set(f):
         forbidden_words.append(word.strip('\n'))
 
-with open(r'data\strikes.json', 'r', encoding = 'utf-8') as f:
-    strikes = json.load(f)
+def migrate_to_id():
+    global user_stats
+    guild = client.get_guild(server_id)
+    user_stats_copy = user_stats.copy() #exceptional only until everyone is migrated to the new id system
+    for key in user_stats_copy.keys():
+        if type(key) is str and not key.isdigit():
+            member = discord.utils.get(guild.members, name=key)
+            if member is None:
+                user_stats.pop(key)
+                continue
+            user_stats[member.id] = user_stats.pop(key)
+        if key.isdigit():
+            user_stats[int(key)] = user_stats.get(key)
+
+def open_save_files():
+    global user_stats
+    global allowed_channels
+    global code_dict
+    global strikes
+    try:
+        #porpouse = 'stats'
+        #with open(r'data\stats.json', 'r') as f: TODO Move back once everything is migrated
+        #    migrate_to_id()
+        #    user_stats = json.load(f)
+        porpouse = 'allowed_channels'
+        with open(r'data\allowed_channels.json', 'r') as f:
+            allowed_channels = json.load(f)
+        porpouse = 'code'
+        with open(r'data\code.json', 'r') as f:
+            code_dict = json.load(f)
+        porpouse = 'strikes'
+        with open(r'data\strikes.json', 'r', encoding = 'utf-8') as f:
+            strikes = json.load(f)   
+    except FileNotFoundError, json.decoder.JSONDecodeError:
+        migrate_or_create(porpouse)
+
+def migrate_or_create(file_type_name:str):
+    """
+    This function either changes the file path into the data folder or if the file doesn't even exist outside the data folder 
+    it creates a blank file with the file_type_name  and the ending .json containing a empty dict.
+
+    Args:
+        file_type_name (str): This argument should contain the purpouse of the file. Ex. The porpouse of the file strikes.json is strikes.
+    """
+    try:
+        old_path = f'{file_type_name}.json'
+        new_path = r'data\\'+file_type_name+'.json'
+        os.rename(old_path, new_path)
+    except FileNotFoundError:
+        with open(new_path, 'w') as f:
+            json.dump({},f)
+
+open_save_files()
 
 with open(r'data\logs.json', 'r') as f:
     save_full_logs = json.load(f)
     full_logs = {}
     for time_str, user_msgs_at_time in save_full_logs.items():
-        time = datetime.fromisoformat(time_str)
-        if time not in full_logs.keys():
-            full_logs[time] = {}
+        time_obj = datetime.fromisoformat(time_str)
+        if time_obj not in full_logs.keys():
+            full_logs[time_obj] = {}
         for user, msgs in user_msgs_at_time.items():
             user = int(user)
-            full_logs[time][user] = msgs 
+            full_logs[time_obj][user] = msgs
 
+async def open_hosting():
+    global to_watch
+    with open(r'data\hosting.json', 'r') as f:
+        to_watch = json.load(f)
+        for watch_data_change in to_watch.values():
+            watch_data_change['watch_date'] = datetime.fromisoformat(watch_data_change.get('watch_date'))
+            guild = watch_data_change.get('guild')
+            watch_data_change['guild'] = client.get_guild(guild)
+            if watch_data_change['guild'] is None:
+                watch_data_change['guild'] = await client.fetch_guild(watch_data_change.get('guild'))
 
-months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
+def open_stats():
+    global user_stats
+    with open(r'data\stats.json', 'r') as f:
+        user_stats = json.load(f)
+        user_stats_copy = user_stats.copy()
+        for key,value in user_stats_copy.items():
+            user_stats[int(key)] = value
+            if user_stats[key].get('time_redeemed') is None:
+                continue
+            user_stats[key]['time_redeemed'] = datetime.fromisoformat(user_stats[key]['time_redeemed'])
+def save_stats():
+    global user_stats
+    for key in user_stats.keys():
+        if user_stats[key].get('time_redeemed') is None:
+            continue
+        user_stats[key]['time_redeemed'] = str(user_stats[key]['time_redeemed'])
+    with open(r'data\stats.json', 'w') as f:
+        json.dump(user_stats,f)
+    open_stats()
+
+months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08':  'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
 roles_imgs = {'owner': r'images\owner.png', 'mini mod': '','klassebot': r'images\bot.png', 'admin': r"images\admin.png", 'dev': r"images\dev.png", 'trial dev': r"images\trial_dev.png", 'elite member': r'images\Elite_member.png', 'member': r"images\member.png", 'beginner': r'images\beginner.png', 'spammer':''}
 ending_imgs = ['png','jpeg']
-admin_channel_id = 1466034381499007084
-bot_channel_id = 1466034381499007082
-welcome_channel_id = 1466034381499007083
+
+admin_channel_name = 'admin'
+bot_channel_name = 'bot'
+welcome_channel_name = 'welcome'
+
+#admin_channel_id = 1466034381499007084
+#bot_channel_id = 1466034381499007082
+#welcome_channel_id = 1466034381499007083
 server_id = 1466034380656083089
+
 
 
 def mismatch_message(user_command):
@@ -132,18 +221,17 @@ def is_dict_complete():
                 strikes[member.name] = 0
                 with open(r'data\strikes.json', 'w') as f:
                     json.dump(strikes, f)
-            if member.name not in user_stats.keys():
-                user_stats[member.name] = {'message_count': 0, 'join_date': member.joined_at.strftime('%d.%m.%Y'),'xp': 0, 'badges': []}
+            if member.id not in user_stats.keys():
+                user_stats[member.id] = {'message_count': 0, 'join_date': member.joined_at.strftime('%d.%m.%Y'),'xp': 0, 'badges': []}
                 update_rank(member)
-                with open(r'data\json.stats', 'w') as f:
-                    json.dump(user_stats, f)
+                save_stats()
 
 def update_rank(member: discord.Member):
     if any(role.name.lower() == 'owner' for role in member.roles):
         rank = 'owner'
-        next_rank = 'None'
+        next_rank = 'None' 
         img = roles_imgs['owner']
-    elif any(role.name.lower() == 'klassebot' for role in member.roles):
+    elif any(role.name.lower() == 'chillbot' for role in member.roles):
         rank = 'KlasseBot'
         next_rank = 'None'
         img = roles_imgs['klassebot']
@@ -180,11 +268,11 @@ def update_rank(member: discord.Member):
         next_rank = 'member'
         img = roles_imgs['beginner']
     
-    user_stats[member.name]['rank'] = rank
-    user_stats[member.name]['next_rank'] = next_rank
-    user_stats[member.name]['img'] = img
+    user_stats[member.id]['rank'] = rank
+    user_stats[member.id]['next_rank'] = next_rank
+    user_stats[member.id]['img'] = img
     try:
-        user_stats[member.name]['xp_for_next_rank'] = roles_requirements[next_rank]['xp'] - user_stats[member.name]['xp']
+        user_stats[member.id]['xp_for_next_rank'] = roles_requirements[next_rank]['xp'] - user_stats[member.id]['xp']
     except KeyError:
         promotion_path = 'error'
         if next_rank == 'mini mod':
@@ -194,22 +282,77 @@ def update_rank(member: discord.Member):
         elif next_rank == 'Currently not avalible.':
             promotion_path = 'by loosing the role spammer'        
         if next_rank == 'None':
-            user_stats[member.name]['xp_for_next_rank'] = 'There is no greater rank beyond Owner'
+            user_stats[member.id]['xp_for_next_rank'] = 'There is no greater rank beyond Owner'
         else:
-            user_stats[member.name]['xp_for_next_rank'] = promotion_path
+            user_stats[member.id]['xp_for_next_rank'] = promotion_path
 
-    with open(r'data\stats.json', 'w') as f:
-        json.dump(user_stats, f)
+    save_stats()
+
+
 
 @client.event
 async def on_ready():
+    global user_stats
     print(f'Logged in as bot {client}')
+    open_stats()
+    await open_hosting()
     is_dict_complete()
     is_waiting_expired.start()
     is_dict_overflow.start()
 
+
+async def response_waiting(ctx:commands.Context, time = 30):
+    waiting_confirmations.append(ctx.author.id)
+    def check(msg: discord.Message):
+        return msg.author != client.user and msg.author == ctx.author and msg.channel == ctx.channel
+    try:
+        response = await client.wait_for('message', timeout=time, check=check)
+    except TimeoutError:
+        await ctx.reply('You took too long to respond', delete_after = 8)
+        return None
+    change_confirmations.append(ctx.author.id)
+    return response
+
+#checks for slurs in the message function
+async def check_slurs_without_punishment(message: discord.Message , text = None, has_file = False):
+    channel = message.channel.name
+    if text != None:
+        user_message = text
+    else:
+        user_message = message.content
+    if has_file != False:
+        reason = 'sending an image containing'
+    else:
+        reason = 'sending'
+    if channel != 'spam':
+        user_message = user_message.lower().strip('?’=,.\'.').replace('@', 'a').replace('1', 'i').replace('!', 'i').replace('ĝ','g').replace('é', 'e').replace('ř', 'r').replace('4','a').replace('1','i').replace('3', 'e').replace('5','s').replace('8', 'o')
+        for word in forbidden_words:
+            if re.findall(r'(?<![a-z])('+word+r'){1,}(?![a-z])',user_message):
+                return True, reason, word
+    return False, reason, ""
+    
+
+
+async def check_slurs(message: discord.Message | commands.Context, text = None, has_file = False):
+    username = message.author.name
+    is_slur, reason, word = await check_slurs_without_punishment(message,text,has_file)
+    if is_slur:  
+        guild = message.guild   
+        channel_admin = discord.utils.get(guild.channels, name = admin_channel_name) #admin channel
+        await add_strike_code(message.author, '1', await client.get_context(message))
+        try:
+            await message.author.send(f'You got one strike for {reason}: {word}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
+            await channel_admin.send(f'User {message.author.name} got one strike for {reason}: {word}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
+        except discord.Forbidden:
+                await message.reply(f'User {username} got one strike for {reason}: {word}.\nThis message was sent in admin because I cannot send DM to {message.author} (DMs disabled or blocked).')
+        except Exception as e:
+            print(e)
+            await message.reply(f'An unexpected error occured while trying to send strike warning to {username}.\nError: {e}')
+        await delete_message(message)
+
 @client.event
-async def on_message(message):
+async def on_message(message:discord.Message):
+    guild = message.guild
     global full_logs
     sideeye_reactions = ['trust me', 'trust me bro', '100%']
     skillissue_reactions = ['why doesnt','why doesn\'t','it doesn\'t work', 'it doesnt work','how do i', 'error','broken', 'i lost', 'i messed up']
@@ -245,10 +388,9 @@ async def on_message(message):
     }
     #prevents the bot responding to himself
     if message.author == client.user:
-        user_stats[message.author.name]['xp'] += 5
-        user_stats[message.author.name]['message_count'] += 1
-        with open(r'data\stats.json', 'w') as f:
-            json.dump(user_stats, f)
+        user_stats[message.author.id]['xp'] += 5
+        user_stats[message.author.id]['message_count'] += 1
+        save_stats()
         return
     
     dont_send= False
@@ -341,23 +483,23 @@ async def on_message(message):
                 if random.randint(1,4) == 1:
                     await message.channel.send(random.choice(gif_reactions['absolute_cinema']))
             
-    if message.guild and message.guild.id != server_id:#print('Mesage was sent in the wrong server.')
+    if message.guild and message.guild.id != guild.id:#print('Mesage was sent in the wrong server.')
         return
     elif not message.guild:#print('Message was sent in a dm.')
         return
     
     #logs the sent message
-    log(logs,message)
+    log(logs_temp,message,with_guild=True)
     log(full_logs, message)
     full_logs = sort_by_newest(full_logs)
     save_full_logs = {}
-    for time, user_msgs_at_time in full_logs.items():
-        time = str(time)
-        if time not in save_full_logs.keys():
-            save_full_logs[time] = {}
+    for time_obj, user_msgs_at_time in full_logs.items():
+        time_obj = str(time_obj)
+        if time_obj not in save_full_logs.keys():
+            save_full_logs[time_obj] = {}
         for user, msgs in user_msgs_at_time.items():
             user = str(user)
-            save_full_logs[time][user] = msgs
+            save_full_logs[time_obj][user] = msgs
     with open(r'data\logs.json', 'w') as f:
         json.dump(save_full_logs, f)
 
@@ -373,44 +515,12 @@ async def on_message(message):
     user_message = str(message.content)
     print(f'Message {user_message} was sent by {username} in the following channel: {channel}')
 
-    #checks for slurs in the message function
-    async def check_slurs_without_punishment(text = None, has_file = False):
-        if text != None:
-            user_message = text
-        else:
-            user_message = message.content
-        if has_file != False:
-            reason = 'sending an image containing'
-        else:
-            reason = 'sending'
-        if channel != 'spam':
-            user_message = user_message.lower().strip('?’=,.\'.').replace('@', 'a').replace('1', 'i').replace('!', 'i').replace('ĝ','g').replace('é', 'e').replace('ř', 'r').replace('4','a').replace('1','i').replace('3', 'e').replace('5','s').replace('8', 'o')
-            for word in forbidden_words:
-                if word in user_message:
-                    return True, reason, word
-        return False, reason, ""
-    
-    async def check_slurs(text = None, has_file = False):
-        is_slur, reason, word = await check_slurs_without_punishment(text,has_file)
-        if is_slur:     
-            channel_admin = client.get_channel(admin_channel_id) #admin channel
-            await add_strike_code(message.author, '1', await client.get_context(message))
-            try:
-                await message.author.send(f'You got one strike for {reason}: {word}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
-                await channel_admin.send(f'User {message.author.name} got one strike for {reason}: {word}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
-            except discord.Forbidden:
-                    await message.reply(f'User {username} got one strike for {reason}: {word}.\nThis message was sent in admin because I cannot send DM to {message.author} (DMs disabled or blocked).')
-            except Exception as e:
-                print(e)
-                await message.reply(f'An unexpected error occured while trying to send strike warning to {username}.\nError: {e}')
-            await delete_message(message)
-    
     #returns a score between 0 and 1 about how save a img object is
     async def check_image_safety(attachment_in_bytes:bytes):
         risk = 0
         with Image.open(BytesIO(attachment_in_bytes)) as img:
             img  = img.resize((100,100))
-            text_on_img = await asyncio.to_thread(pytesseract.image_to_string,img)
+            text_on_img = await asyncio.to_thread(pytesseract.image_to_string,img) 
             is_slur, _, _ = await check_slurs_without_punishment(text_on_img, True)
             if is_slur:
                 risk += 5
@@ -430,10 +540,10 @@ async def on_message(message):
             elif security_rating > 0.8:
                 risk += 6
             if risk == 5 or risk == 4:
-                channel = client.get_channel(admin_channel_id)
+                channel = discord.utils.get(guild.channels,name= admin_channel_name)
                 await channel.send(f'Flagged image from user {message.author.name}.\nIts risk was rated {risk}/9.', reference=message)
             elif risk > 5:
-                channel_admin = client.get_channel(admin_channel_id)
+                channel_admin = discord.utils.get(guild.channels,name= admin_channel_name)
                 await add_strike_code(message.author, '1', await client.get_context(message))
                 reason = 'sending an explicit image'
                 try:
@@ -481,7 +591,7 @@ async def on_message(message):
                                         print(e)
                                         continue
                                     print('Will check image safety')
-                                    await check_image_safety(url_image)
+                                    await check_image_safety(url_image)#TODO for every ten to twenti frames in a gif check its image safety
                     except urllib.error.HTTPError:
                         print('entered exception')
                         async with session.get(url) as page:
@@ -499,7 +609,7 @@ async def on_message(message):
                 await message.channel.send('Please only use not expired image links.')
                 await delete_message(message)
             except KeyError:
-                channel = client.get_channel(admin_channel_id)
+                channel = discord.utils.get(guild.channels,name= admin_channel_name)
                 await channel.send(f'Flagged image from user {message.author.name}.\nIts image size was greater than 20MB/9.')
                 await channel.send(f'Message link {message.jump_url}')
 
@@ -509,14 +619,13 @@ async def on_message(message):
                     attachment_in_bytes = await attachment.read()
                     await check_image_safety(attachment_in_bytes)
                             
-
-        await check_slurs()
+        print(type(message))
+        await check_slurs(message)
 
         #levels up the stats
-        user_stats[message.author.name]['xp'] += 5
-        user_stats[message.author.name]['message_count'] += 1
-        with open(r'data\stats.json', 'w') as f:
-            json.dump(user_stats, f)
+        user_stats[message.author.id]['xp'] += 5
+        user_stats[message.author.id]['message_count'] += 1
+        save_stats()
         await rank_check(message.author)
 
 
@@ -533,9 +642,10 @@ async def on_message(message):
                         return
                 
     #checks if the user was doing a confirmation
-    if message.author in waiting_confirmations:
-        if message.author in change_confirmations:
-            waiting_confirmations.remove(message.author)
+    if message.author.id in waiting_confirmations:
+        if message.author.id in change_confirmations:
+            waiting_confirmations.remove(message.author.id)
+            change_confirmations.remove(message.author.id)
         return
     
     #makes the text readable
@@ -549,6 +659,15 @@ async def on_message(message):
     #Starting from here the rest is responses to normal messages
         if user_message.lower() == 'hello' or user_message.lower() == 'hi':
             await message.channel.send(f'Hello {username}')
+        elif user_message.lower().strip('?.') in ['what are we watching this sunday', 'what are we going to watch this sunday']:
+            if winner_user != None:
+                if winner_user != 1:
+                    await message.channel.send(f'<@{winner_user.id}> will be hosting **{winner_content}** this sunday.',allowed_mentions = discord.AllowedMentions(users=False))
+                    return
+                await message.channel.send(f'<@{winner_user.id} is currently hosting **{winner_content}** in the General VC.', allowed_mentions = discord.AllowedMentions(user=False))
+                return
+            await message.channel.send('The winner suggestion will only be determined this sunday one hour before the event.')
+            return
         elif user_message.lower() == 'bye':
             await message.channel.send(f'Bye {username}')
 
@@ -579,9 +698,12 @@ async def on_message(message):
             await message.channel.send(random.choice(['Unnötige Frage.', 'Give it up twin🥀✌️', "Give it up bro.","Be serious bro.","That’s not it.","Bro please.","Come on bro.","That’s wild.","Bro thought this was smart.","That’s crazy. In a bad way.","Not happening.","Message rejected.","Try again.","Try harder.","Recalculate.","Re-evaluate your choices.","You are lost.","Completely lost.","Orientation missing.","Confidence was there. Logic wasn’t.","That ain’t it.","That’s tough bro.","Bro thought hes tough.","Delete that.","Let’s pretend that didn’t happen.","I’m ignoring this.","No comment.","I refuse.",'Bold move.',"Incorrect move.","Critical thinking left.", "Brain patch missing.","That changed nothing.","Energy wasted.","Time wasted.","Bro typed that confidently but confidence ≠ correctness.","Let’s not.","Just no.","You need a brain reset.","Minimal brain usage.","I’m distancing myself.","Bro why.","Explain yourself.","Just don’t.","Well that’s embarrassing.","This is not it.","I’m logging off mentally.","That’s below expectations. Way below.","Try again tomorrow.","That hurt to read.","Completely unnecessary.","Respectfully no. Disrespectfully also no.","Absolutely not.","At least you tried.", "No shot.","You can’t mean that.","That’s delusional (lightly).","You said that confidently too.","You lost me instantly.","That’s illegal logic.","You typed that willingly.","That’s not defendable.","You overcooked.","You committed too hard.","I’m disappointed in that one.","Even your mom would’ve double-checked that.","Even your mom expected better.","Your mom saw that and logged off.","Your mom would’ve taken five more seconds to write that correctly.","Even your mom knew that wasn’t it.","Even your mom wouldn’t defend that.","Even your mom would’ve googled it first.","Even your mom would’ve edited that.","Even your mom paused before that one.","Even your mom would’ve worded that better.","Even your mom would’ve structured that better."]))
 
 
-def log(log:dict,message:discord.Message):
-    if message.author.id not in log.keys():                       
-        log[message.author.id] = {}
+def log(log:dict,message:discord.Message,with_guild = False):
+    if message.author.id not in log.keys():
+        if with_guild:                     
+            log[message.author.id] = {'guild_id':message.guild.id}
+        else:
+            log[message.author.id] = {}  
     if message.created_at not in log[message.author.id].keys():
         log[message.author.id][message.created_at]  = []
     log[message.author.id][message.created_at].append(message.content)
@@ -593,31 +715,30 @@ async def on_member_update(before: discord.Member, after: discord.Member):
 
 
 async def rank_check(member: discord.Member):
-    next_rank = user_stats[member.name]['next_rank']
-    user_xp = user_stats[member.name]['xp']
+    guild = member.guild
+    next_rank = user_stats[member.id]['next_rank']
+    user_xp = user_stats[member.id]['xp']
     user_strikes = strikes[member.name]
     if next_rank in roles_requirements.keys():
         if roles_requirements[next_rank]['xp'] <= user_xp and roles_requirements[next_rank]['strikes'] >= user_strikes:
-            guild = client.get_guild(server_id)
-            old_rank = discord.utils.get(guild.roles, name= user_stats[member.name]['rank'])
+            old_rank = discord.utils.get(guild.roles, name= user_stats[member.id]['rank'])
             new_rank = discord.utils.get(guild.roles, name = next_rank)
             await promote(old_rank, new_rank, member)
 
 async def promote(old_role: discord.Role, new_role: discord.Role, member: discord.Member):
+    guild = member.guild
     await remove_role_logic(member, old_role)
     await give_role_logic(member, new_role)
-    user_stats[member.name]['xp'] = 0
-    with open(r'data\stats.json', 'w') as f:
-            json.dump(user_stats, f)
+    user_stats[member.id]['xp'] = 0
+    save_stats()
     update_rank(member)
+    channel = discord.utils.get(guild.channels,name= admin_channel_name)
     try:
         await member.send(f'You successfully got promoted from {old_role.name} to {new_role.name}.')
     except discord.Forbidden:
-        channel = client.get_channel(admin_channel_id)
         await channel.send(f'Successfully promoted {member.name} from {old_role.name} to {new_role.name}.')
     except Exception as e:
         print(e)
-        channel = client.get_channel(admin_channel_id)
         await channel.send(f'An error occoured while trying to promote {member.name} from {old_role.name} to {new_role.name}.\nPlease contact the bot dev if this behaviour is unexpected.')
 
 @client.command()
@@ -629,25 +750,22 @@ async def is_dict_overflow():
     while len(full_logs) > 500:
         full_logs.pop(next(iter(full_logs)))#removes the first entered key value pair
     save_full_logs = {}
-    for time, user_msgs_at_time in full_logs.items():
-        time = str(time)
-        if time not in save_full_logs.keys():
-            save_full_logs[time] = {}
+    for time_obj, user_msgs_at_time in full_logs.items():
+        time_obj = str(time_obj)
+        if time_obj not in save_full_logs.keys():
+            save_full_logs[time_obj] = {}
         for user, msgs in user_msgs_at_time.items():
             user = str(user)
-            save_full_logs[time][user] = msgs
+            save_full_logs[time_obj][user] = msgs
     with open(r'data\logs.json', 'w') as f:
         json.dump(save_full_logs, f)
 
 @client.command()
 @commands.has_role('dev')
 @commands.bot_has_permissions(manage_messages= True)
-async def set_xp(ctx, member: discord.Member, amount):
-    if type(amount) != int:
-        amount = int(amount)
-    user_stats[member.name]['xp'] = amount
-    with open(r'data\stats.json', 'w') as f:
-        json.dump(user_stats, f)
+async def set_xp(ctx, member: discord.Member, amount:int):
+    user_stats[member.id]['xp'] = amount
+    save_stats()
     await ctx.send(f'succecfully set {member.name}\'s xp to {amount}.')
 
 
@@ -659,8 +777,9 @@ async def give_role(ctx, member: discord.Member, role: discord.Role):
     await give_role_logic(member, role, ctx)
 
 async def give_role_logic(member: discord.Member, role: discord.Role, ctx = None):
+    guild = member.guild
     if ctx == None:
-        channel = client.get_channel(admin_channel_id) #admin channel
+        channel = discord.utils.get(guild.channels,name= admin_channel_name)#admin channel
     else:
         channel = ctx.channel
     try:
@@ -682,9 +801,10 @@ async def remove_role(ctx, member: discord.Member, role: discord.Role):
     await ctx.send(message)
 
 async def remove_role_logic(member: discord.Member, role: discord.Role):
+    guild = member.guild
     try:
         await member.remove_roles(role)
-        channel = client.get_channel(admin_channel_id)
+        channel = discord.utils.get(guild.channels,name= admin_channel_name)
         await channel.send(f'Successfully removed {role.name} from {member.display_name}.')
         return f'Successfully removed {role.name} from {member.display_name}.'
     except discord.Forbidden:
@@ -734,13 +854,36 @@ async def remove_all_roles(ctx, role: discord.Role):
 
 @client.event
 async def on_member_join(member: discord.Member):
-    channel =  client.get_channel(welcome_channel_id)#welcome channel
-    guild = client.get_guild(server_id)
+    guild = member.guild
+    channel =  discord.utils.get(guild.channels, name= 'welcome')#welcome channel
     await channel.send(f'Welcome {member.display_name} to the {guild.name} server!')
-    guild = client.get_guild(server_id)
     role = discord.utils.get(guild.roles, name = 'beginner') 
     await give_role_logic(member, role)
     is_dict_complete()
+
+async def remove_suggestion_logic(suggestion):
+    watch_data = to_watch.pop(suggestion)
+    guild = watch_data.get('guild')
+    await save_hosting()
+    if len(to_watch) == 0:
+        all_events = await guild.fetch_scheduled_events()
+        for event in all_events:
+            if event.name.lower() == event_title.lower():
+                await event.delete()
+                return True
+    return False
+
+@client.event
+async def on_member_remove(member:discord.Member):
+    guild = member.guild
+    channel = discord.utils.get(guild.channels, name = 'goodbye')
+    await channel.send(f'Bye {member.name} we are sorry to see you go.')
+    is_hosting, suggestion = is_member_hosting(member)
+    if is_hosting:
+        is_removed = await remove_suggestion_logic(suggestion=suggestion)
+        if is_removed is False:
+            print('An error occoured when trying to remove a member that left from the suggestion list. Function: on_member_remove.')
+
 
 @client.command()
 @commands.has_permissions(moderate_members=True)
@@ -750,6 +893,7 @@ async def timeout(ctx, member: discord.Member, duration: str, *,reason: str = 'N
     await timeout_logic(ctx, member, duration ,reason = reason) 
     
 async def timeout_logic(ctx, member: discord.Member, duration: str, *,reason: str = 'No valid reason provided'):
+    guild = member.guild
     try:
         time_unit = duration[-1]
         time_value = int(duration[:-1])
@@ -767,10 +911,10 @@ async def timeout_logic(ctx, member: discord.Member, duration: str, *,reason: st
             else:
                 await ctx.send('Please enter a allowed time value. Valid formats are: s, m, h, d.')
         await member.timeout(timeout_time, reason=reason)
-        channel =  client.get_channel(admin_channel_id)
+        channel = discord.utils.get(guild.channels,name= admin_channel_name)
         await channel.send(f'Member {member.name} has been timed out for {duration}. Reason: {reason}.')
     except ValueError:
-        channel = client.get_channel(admin_channel_id)
+        channel = discord.utils.get(guild.channels,name= admin_channel_name)
         await channel.send(f'Member {member.name} has not been timed out for {duration}. Reason {reason}.\nIt failed because of a ValueError.')
     except discord.Forbidden:
         await ctx.send('I am not capable of performing actions for members above or at my same rank.')
@@ -835,12 +979,12 @@ async def set_strikes_code(ctx, member: discord.Member, amount ='1'):
 
 
 async def strikes_punishments(member: discord.Member, ctx  = None):
-    channel =  client.get_channel(admin_channel_id) #admin channel
-    guild = client.get_guild(server_id)
-    if user_stats[member.name]['rank'] == 'owner':
+    guild = member.guild
+    channel =  discord.utils.get(guild.channels,name= admin_channel_name) #admin channel
+    if user_stats[member.id]['rank'] == 'owner':
         name = 'Owner'
     else:
-        name= user_stats[member.name]['rank'] 
+        name= user_stats[member.id]['rank'] 
     old_role = discord.utils.get(guild.roles, name =name )#it is called that way to save it as an old role if the user recieves spammer
     spammer = discord.utils.get(guild.roles, name= 'spammer')
     if old_role.name == 'owner' or old_role.name == 'admin' or old_role.name == 'mini mod' or old_role.name == 'dev' or old_role.name == 'trial dev':
@@ -850,19 +994,18 @@ async def strikes_punishments(member: discord.Member, ctx  = None):
         print('Could not find channel with the set channel ID.')
         return
     if strikes[member.name] == 1:
-        time = '1m'
-        await timeout_logic(ctx, member, time, reason= 'The user has one strike')
-        await channel.send(f'{member.name} was timedout for {time} for having {strikes[member.name]} strikes.')
+        time_obj = '1m'
+        await timeout_logic(ctx, member, time_obj, reason= 'The user has one strike')
+        await channel.send(f'{member.name} was timedout for {time_obj} for having {strikes[member.name]} strikes.')
     elif strikes[member.name] == 2:
-        time = '5m'
-        msg = await timeout_logic(ctx, member, time, reason= 'The user has two strikes')
+        time_obj = '5m'
+        msg = await timeout_logic(ctx, member, time_obj, reason= 'The user has two strikes')
         print(msg)
-        await channel.send(f'{member.name} was timedout for {time} for having {strikes[member.name]} strikes.')
+        await channel.send(f'{member.name} was timedout for {time_obj} for having {strikes[member.name]} strikes.')
     elif strikes[member.name] >= 3 and strikes[member.name] <= 19:
-        user_stats[member.name]['role_before_spam'] = old_role.name
+        user_stats[member.id]['role_before_spam'] = old_role.name
         await promote(old_role, spammer, member)
-        with open(r'data\stats.json', 'w') as f:
-            json.dump(user_stats, f)
+        save_stats()
         ban_time = timedelta(seconds = 100)
         if strikes[member.name] == 4:
             ban_time = timedelta(minutes= 5)
@@ -905,10 +1048,9 @@ async def strikes_punishments(member: discord.Member, ctx  = None):
             await ctx.reply('You got flagged for spamming or saying slurs.', delete_after = 5)
 
     elif strikes[member.name] >= 20 and strikes[member.name] <= 40:
-        user_stats[member.name]['role_before_spam'] = old_role.name
+        user_stats[member.id]['role_before_spam'] = old_role.name
         await promote(old_role, spammer, member)
-        with open(r'data\stats.json', 'w') as f:
-            json.dump(user_stats, f)
+        save_stats()
         await timeout_logic(member, '1d', reason=f'The user has {strikes[member.name]} strikes.')
 
     elif strikes[member.name] > 40:
@@ -923,30 +1065,29 @@ async def strikes_punishments(member: discord.Member, ctx  = None):
 
 @tasks.loop(seconds= 10)
 async def is_waiting_expired():
-    guild = client.get_guild(server_id)#server ID
     members_to_remove = []
-    spammer = discord.utils.get(guild.roles, name = 'spammer')
     for member in waiting_list:
+        guild = member.guild
         if waiting_list[member] <= datetime.now(timezone.utc):
-            new_role = discord.utils.get(guild.roles, name= user_stats[member.name]['role_before_spam'])
-            user_stats[member.name].pop('role_before_spam')
-            with open(r'data\stats.json', 'w') as f:
-                json.dump(user_stats, f)
+            spammer = discord.utils.get(guild.roles, name = 'spammer')
+            new_role = discord.utils.get(guild.roles, name= user_stats[member.id]['role_before_spam'])
+            user_stats[member.id].pop('role_before_spam')
+            save_stats()
             await promote(spammer,new_role, member)
             members_to_remove.append(member)
 
     for member in members_to_remove:
         waiting_list.pop(member)
 
-async def delete_message(message, time = 0):
+async def delete_message(message, time_obj = 0):
     """
     Docstring for delete_message
     
     :param message: discord.Message or list containing discord.Message
     :param time: Amount of seconds waiting before deleting.
     """
-    if time != 0:
-        await asyncio.sleep(time)
+    if time_obj != 0:
+        await asyncio.sleep(time_obj)
     if isinstance(message, discord.Message):
         await message.delete()
     if isinstance(message, list):
@@ -957,25 +1098,29 @@ async def delete_message(message, time = 0):
 
 def del_old_logs():
     keys_to_pop = {}
-    for user, messages in logs.items():
+    for user, messages in logs_temp.items():
         for timestamp in messages.keys():
+            if timestamp == 'guild_id':
+                continue
             five_min_before = datetime.now(timezone.utc) - timedelta(minutes=3)
             if timestamp < five_min_before:
                 if user not in keys_to_pop.keys():
                     keys_to_pop[user] = [timestamp]
                 else:
                     keys_to_pop[user].append(timestamp)
-    for user, time in keys_to_pop.items():
-        for timestamp in time:
-            logs[user].pop(timestamp)
+    for user, time_obj in keys_to_pop.items():
+        for timestamp in time_obj:
+            logs_temp[user].pop(timestamp)
 
 async def check_spam_without_punishment():
     global is_user_spamming
     del_old_logs()
     is_user_spamming = {}
-    for user, message_logs in logs.items():
+    for user, message_logs in logs_temp.items():
         all_msg_per_user = []
         for message_list in message_logs.values():
+            if isinstance(message_list,int):
+                continue
             for message in message_list:
                 all_msg_per_user.append(message)
         all_percentages = []
@@ -997,8 +1142,6 @@ async def check_spam_without_punishment():
                 match_perc = difflib.SequenceMatcher(a= next_msg, b= msg).ratio()
                 msg_to_remove.append(next_msg)
                 avg_percentage.append(match_perc)
-            for remove_msg in msg_to_remove:
-                not_compared_msgs.remove(remove_msg)
             if len(avg_percentage) > 0:
                 print(statistics.median(avg_percentage))
                 all_percentages.append(statistics.median(avg_percentage))
@@ -1024,20 +1167,25 @@ async def check_spam_without_punishment():
 async def check_spam():
     await check_spam_without_punishment()
     await spam_punishment()
-
+    
 async def spam_punishment():
-    channel = client.get_channel(1466034381499007084) # admin channel
     for user in is_user_spamming:
+        guild = client.get_guild(logs_temp[user].get('guild_id'))
+        channel = discord.utils.get(guild.channels,name= admin_channel_name) # admin channel
         if is_user_spamming[user]:
-            await channel.send(f'User {user} is spamming.')
-            await add_strike_code(user, 1)
-            logs[user] = {}
+            user_name = client.get_user(user)
+            await channel.send(f'User {user_name} is spamming.')
+            user_obj = guild.get_member(user)
+            if user_obj == None:
+                user_obj = client.fetch_user(user)
+            await add_strike_code(user_obj, 1)
+            logs_temp[user] = {}
             is_user_spamming[user] = False
             break
 
 @client.command()
 @commands.has_permissions(manage_messages=True)
-async def show_logs(ctx,mbr = None, amount = 'all', sorting = False): # TODO Make it so that 
+async def logs(ctx,mbr = None, amount = 'all', sorting = False): # TODO Make it so that it works and only gives the logs of a certain person or of a certain amount not the full logs
     counter = 0
     user_2 = None
     only_one = False
@@ -1083,7 +1231,7 @@ async def show_logs(ctx,mbr = None, amount = 'all', sorting = False): # TODO Mak
     sorted_logs = sort_by_newest(full_logs)
     user_msgs = {}
     while counter <= amount:
-        for time, user_msgs_at_time in sorted_logs.items():
+        for time_obj, user_msgs_at_time in sorted_logs.items():
             for user, msg_list in user_msgs_at_time.items():
                 if len(msg_list) == 0:
                     continue
@@ -1094,11 +1242,11 @@ async def show_logs(ctx,mbr = None, amount = 'all', sorting = False): # TODO Mak
                 for msg in msg_list:
                     if user not in user_msgs.keys():
                         user_msgs[user] = f'\nUser {user_n.name} sent:'
-                    user_msgs[user] += f'\nmessage: {msg} at {time.strftime("%D %H:%M")}'
+                    user_msgs[user] += f'\nmessage: {msg} at {time_obj.strftime("%D %H:%M")}'
             else:
                 for msg in msg_list:
                     append_msg = (f'User {user_n.name} sent: ')
-                    append_msg += f'\nmessage: {msg} at {time.strftime("%H:%M")}'
+                    append_msg += f'\nmessage: {msg} at {time_obj.strftime("%H:%M")}'
                 readable_logs += f'{append_msg}\n'
             counter +=1
         break
@@ -1115,15 +1263,15 @@ def sort_by_newest(dictionary:dict):
     log_dict = dictionary.copy()
     sort_full_logs = {}
     for user,msg_list in log_dict.items():
-        for time,msgs in msg_list.items():
-            if isinstance(time,int):
-                time, user = user, time
-            if time not in sort_full_logs:
-                sort_full_logs[time] = {}
-            if user not in sort_full_logs[time]:
-                sort_full_logs[time][user] = []
+        for time_obj,msgs in msg_list.items():
+            if isinstance(time_obj,int):
+                time_obj, user = user, time_obj
+            if time_obj not in sort_full_logs:
+                sort_full_logs[time_obj] = {}
+            if user not in sort_full_logs[time_obj]:
+                sort_full_logs[time_obj][user] = []
             for msg in msgs:
-                sort_full_logs[time][user].append(msg)
+                sort_full_logs[time_obj][user].append(msg)
     return dict(sorted(sort_full_logs.items()))#.items is crucial here to not loose connection to the values
 
 @client.command()
@@ -1146,20 +1294,14 @@ async def gen(ctx, user_input: str): # TODO Make it so that you can do smth like
     else:
         if any(role.name == 'dev' for role in ctx.author.roles):
             await ctx.send('Would you like to add this code? (y/n)')
-            waiting_confirmations.append(ctx.author)
-            def check(msg: discord.Message):
-                return msg.author != client.user and msg.author == ctx.author and msg.channel == ctx.channel
-            try:
-                response = await client.wait_for('message', timeout= 30, check = check)
-                change_confirmations.append(ctx.author)
-            except TimeoutError:
-                await ctx.send('You took too long to respond.')
+            response = await response_waiting(ctx)
+            if response == None:
                 return
             if response.content.lower() == 'y':
                 await ctx.send('What is the code?')
-                waiting_confirmations.append(ctx.author)
+                waiting_confirmations.append(ctx.author.id)
                 try:
-                    code = await client.wait_for('message', timeout= 180 , check = check)
+                    code = await response_waiting(ctx, time = 180)
                     if code.attachments and len(code.content.strip()) == 0:
                         if len(code.attachments) == 1:
                             if any(code.attachments[0].filename.lower().endswith(fileend) for fileend in allowed_file_endings):
@@ -1170,7 +1312,7 @@ async def gen(ctx, user_input: str): # TODO Make it so that you can do smth like
                                     print(f'Error while trying to decode file')
                     if isinstance(code, discord.Message):
                         code = code.content
-                    change_confirmations.append(ctx.author)
+                    change_confirmations.append(ctx.author.id)
                 except TimeoutError:
                     await ctx.send('You took too long to respond.')
                     return
@@ -1199,15 +1341,9 @@ def format_to_code(code: str, language:str):
 @commands.has_role('dev')
 async def gen_edit(ctx, user_input: str):
     if user_input in code_dict.keys():
-        def check(msg: discord.Message):
-            return msg.author != client.user and msg.author == ctx.author and msg.channel == ctx.channel
         await ctx.send('What would you like to change the code to?(Enter exit to exit.)')
-        waiting_confirmations.append(ctx.author)
-        try:
-            code = await client.wait_for('message', timeout= 180 , check = check)
-            change_confirmations.append(ctx.author)
-        except TimeoutError:
-            await ctx.send('You took too long to respond.')
+        code = await response_waiting(ctx)
+        if code == None:
             return
         if code.content == 'exit':
             return
@@ -1222,15 +1358,9 @@ async def gen_edit(ctx, user_input: str):
 @commands.has_role('dev') # TODO make it so that also higher roles than dev can acces this command also automaticly including all rules with admin acces and the owner
 async def gen_del(ctx, user_input: str):
     if user_input in code_dict.keys():
-        def check(msg: discord.Message):
-            return msg.author != client.user and msg.author == ctx.author and msg.channel == ctx.channel
         await ctx.send('Are you sure that you want to delete the code for this command? (y/n)')
-        waiting_confirmations.append(ctx.author)
-        try:
-            response = await client.wait_for('message', timeout= 100 , check = check)
-            change_confirmations.append(ctx.author)
-        except TimeoutError:
-            await ctx.send('You took too long to respond.')
+        response = await response_waiting(ctx)
+        if response == None:
             return
         if response.content == 'y':
             code_dict.pop(user_input)
@@ -1243,9 +1373,10 @@ async def gen_del(ctx, user_input: str):
 @client.command()
 @commands.has_permissions(manage_messages = True)
 @commands.bot_has_permissions(manage_messages=True)
-async def clear_channel (ctx, channel_id: int = None):
+async def clear_channel (ctx:commands.Context, channel_id: int = None):
+    guild = ctx.guild
     try:
-        channel_name =   ctx.guild.get_channel(admin_channel_id).name 
+        channel_name = discord.utils.get(guild.channels,name= admin_channel_name) 
     except:
         channel_name = 'general'
     if ctx.channel.name != channel_name: # admin channel
@@ -1260,14 +1391,9 @@ async def clear_channel (ctx, channel_id: int = None):
         reply = await ctx.reply(reply)
         await delete_message([ctx, reply], time=5)
     await ctx.send(f'Are you sure that you want to delete all messages of the channel {channel.name}. Type y to confirm and n to exit.')
-    waiting_confirmations.append(ctx.author)
-    def check(msg: discord.Message):
-        return msg.author != client.user and msg.author == ctx.author and msg.channel == ctx.channel
-    try:
-        response = await client.wait_for('message', timeout=30, check=check)
-        change_confirmations.append(ctx.author)
-    except asyncio.TimeoutError:
-        await ctx.send('You took too long to respond.')
+    waiting_confirmations.append(ctx.author.id)
+    response = await response_waiting(ctx)
+    if response == None:
         return
     if response.content == 'y':
         try:
@@ -1293,24 +1419,29 @@ async def clear_channel (ctx, channel_id: int = None):
 
 @client.command()
 @commands.has_permissions(manage_channels=True)
-async def add_allowed_channels(ctx, channel_id: str):
+async def add_allowed_channels(ctx, channel_id: int):
     for channel in ctx.guild.channels:
-        if int(channel_id) == channel.id:
-            if int(channel_id) in allowed_channels.values():
+        if channel_id == channel.id:
+            if channel_id in allowed_channels.values():
                 await ctx.send(f'Channel is already an allowed channel.')
                 return
-            allowed_channels[channel.name] = int(channel_id)
+            allowed_channels[channel.name] = channel_id
             await ctx.send(f'Successfully added channel {channel.name} to the allowed channels.')
+            with open(r'data\allowed_channels.json', 'w') as f:
+                json.dump(allowed_channels,f)
             return
     await ctx.send('Channel was not found. Please make sure that the entered channeld ID is an existing channel.')
 
 @client.command()
 @commands.has_permissions(manage_channels=True)
-async def remove_allowed_channels(ctx, channel_id: str):
+async def remove_allowed_channels(ctx, channel_id: int):
     for name, id in allowed_channels.items():
         if channel_id == id:
             allowed_channels.pop(name)
+            with open(r'data\allowed_channels.json', 'w') as f:
+                json.dump(allowed_channels,f)
             await ctx.send(f'Successfully removed channel {name} from the allowed channels.')
+            return 
     await ctx.send('Channel id is not yet registred to the allowed channels.')
 
 @client.command()   
@@ -1336,9 +1467,9 @@ async def stats(ctx, user: discord.Member = None):
 
         img2,mask = PIL_round_img_obj(server_avatar_in_bytes,(90,90))
         white_image.paste(img2,(535,125),mask=mask)            
-        current_xp = user_stats[member.name]['xp']
+        current_xp = user_stats[member.id]['xp']
         try:
-            xp_needed = roles_requirements[user_stats[member.name]['next_rank']]['xp']
+            xp_needed = roles_requirements[user_stats[member.id]['next_rank']]['xp']
         except KeyError:
             xp_needed = ''
         txt_to_dp = f'XP: {current_xp}/{xp_needed}'
@@ -1400,20 +1531,20 @@ async def stats(ctx, user: discord.Member = None):
         else:
             draw = PIL_text_obj(draw, cords, member.display_name,font_size= 80, text_color=(255,255,255))
         draw = PIL_text_obj(draw,bar_cords,percent,font_size=font_size-2)
-        if user_stats[member.name]['xp_for_next_rank'] == 'Owner is the highest rank':
+        if user_stats[member.id]['xp_for_next_rank'] == 'Owner is the highest rank':
             response = 'There is no way to rank up with xp after at this rank.'
-        elif type(user_stats[member.name]['xp_for_next_rank']) == str:
-            if user_stats[member.name]['xp_for_next_rank'] == 'There is no greater rank beyond Owner':
-                if user_stats[member.name]['rank'] == 'KlasseBot':
+        elif type(user_stats[member.id]['xp_for_next_rank']) == str:
+            if user_stats[member.id]['xp_for_next_rank'] == 'There is no greater rank beyond Owner':
+                if user_stats[member.id]['rank'] == 'KlasseBot':
                     response = f'There is no higher rank for me.'
                 else:
                     response = f'There is no higher rank.'
             else:
-                response = f'It is not possible to progress with XP.\nIt is only possible to rank up\n{user_stats[member.name]["xp_for_next_rank"]}.'
+                response = f'It is not possible to progress with XP.\nIt is only possible to rank up\n{user_stats[member.id]["xp_for_next_rank"]}.'
         else:
-            response = f'You need {user_stats[member.name]["xp_for_next_rank"]} xp to rank up {user_stats[member.name]["next_rank"]}\n(Every message gives 5xp).\n'
+            response = f'You need {user_stats[member.id]["xp_for_next_rank"]} xp to rank up {user_stats[member.id]["next_rank"]}\n(Every message gives 5xp).\n'
         counter = 0
-        for split in user_stats[member.name]['join_date'].split('.'):
+        for split in user_stats[member.id]['join_date'].split('.'):
             if counter == 0:
                 day = str(split)
             elif counter == 1:
@@ -1425,18 +1556,18 @@ async def stats(ctx, user: discord.Member = None):
         cords = (x, y-50)
         draw = PIL_text_obj(draw, cords, txt_to_dp,font_size= font_size+10)
         cords = cords[0], cords[1] + extra + 60
-        draw = PIL_text_obj(draw,cords, f'Messages        {user_stats[member.name]["message_count"]}',font_size= font_size)
+        draw = PIL_text_obj(draw,cords, f'Messages        {user_stats[member.id]["message_count"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
-        draw = PIL_text_obj(draw,cords, f'Rank                {user_stats[member.name]["rank"]}',font_size= font_size)
+        draw = PIL_text_obj(draw,cords, f'Rank                {user_stats[member.id]["rank"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
-        draw = PIL_text_obj(draw,cords, f'Next rank         {user_stats[member.name]["next_rank"]}',font_size= font_size)
+        draw = PIL_text_obj(draw,cords, f'Next rank         {user_stats[member.id]["next_rank"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
         draw = PIL_text_obj(draw,cords, f'Joined              {date}',font_size= font_size)
         cords = cords[0], cords[1] + extra
-        draw = PIL_text_obj(draw,cords, f'Total XP           {user_stats[member.name]["xp"]}',font_size= font_size)
+        draw = PIL_text_obj(draw,cords, f'Total XP           {user_stats[member.id]["xp"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
         draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
-        rank_img = user_stats[member.name]["img"]
+        rank_img = user_stats[member.id]["img"]
         if rank_img != '':
             try:
                 with Image.open(rank_img, 'r') as rank_img2:
@@ -1495,11 +1626,186 @@ def PIL_round_img_obj(img, size = None):
 
 @client.command()
 @commands.has_permissions(manage_messages=True)
-async def add_bade(ctx, badge_name: str):
+async def add_badge(ctx, badge_name: str, member: discord.Member):
     if badge_name in badges_imgs.keys():
-        pass  
+        user_stats[member.id]['badges'].append(badges_imgs.get(badge_name))
+
+def is_member_hosting(member:discord.Member):
+    for watch_name, watch_data in to_watch.items():
+        if watch_data.get('id') == member.id:
+            return True, watch_name
+    return False, None
+
+async def save_hosting():
+    to_save_watch_data = to_watch.copy()
+    for watch_data in to_save_watch_data.values():
+        watch_data['watch_date'] = str(watch_data.get('watch_date'))
+        watch_data['guild'] = watch_data.get('guild').id
+    with open(r'data\hosting.json', 'w') as f:
+        json.dump(to_save_watch_data, f)
+    await open_hosting()
+
+@client.command()
+async def suggest(ctx: commands.Context, watch_name:str, takes_time:int = 2):
+    if suggestions_closed:
+        await ctx.send('Suggestion are closed until the upcoming event is over.')
+        return
+    global next_sunday
+    global to_watch
+    guild = ctx.guild
+    watch_name = watch_name.lower()
+    is_slur,_,_ = await check_slurs_without_punishment(ctx,watch_name)
+    if is_slur:
+        return
+    is_hosting,_ = is_member_hosting(ctx.author)
+    if is_hosting:
+        await ctx.send('You are already hosting an event.\nYou can\'t host multiple events at the same time.')
+        return
+    if watch_name in to_watch.keys():
+        member = ctx.guild.get_member(to_watch.get(watch_name).get('id'))
+        if member is None:
+            display_name = client.fetch_user(to_watch.get(watch_name).get('id'))
+        display_name = member.display_name
+        watch_time = to_watch.get(watch_name).get('watch_date')
+        await ctx.send(f'{watch_name} is already being hosted by {display_name} at {watch_time.strftime('%d.%m.%Y')}.\nYou can\'t suggest to host the same thing.')
+        return
+    await ctx.send('Do you want to host it this weekend (You will have to set up what you proposed next sunday) (y/n)?')
+    response = await response_waiting(ctx)
+    if response.content.lower() in ['y','yes']:
+        next_sunday = next_sunday.replace(tzinfo=timezone.utc)#next sunday replace timezone information with utc timezone
+        channel = discord.utils.get(guild.voice_channels, name= 'General')
+        to_watch[watch_name] = {'watch_date': next_sunday,
+                                'id': ctx.author.id,
+                                'guild': ctx.guild}
+        await ctx.reply(f'You are now applied to host **{watch_name}** next sunday.')
+        await save_hosting()
+        all_events = await guild.fetch_scheduled_events()
+        for event in all_events:
+            if event.name.lower() == event_title.lower():
+                return
+        await guild.create_scheduled_event(name=event_title,start_time = next_sunday, 
+                                           end_time = next_sunday+timedelta(takes_time),
+                                           entity_type=discord.EntityType.voice,description = event_description,
+                                           privacy_level=discord.PrivacyLevel.guild_only,
+                                           channel = channel)#guild only makes it so that only server members can participate in this event. Else you could see the server in discovery and before accepting rules etc just participate in the event.
+    elif response.content.lower() in ['n', 'no']:
+        await ctx.reply('Sorry but you can\'t propose something and then not host it. If you want you can try to convince someone else to do it for you.')
+
+@client.command()
+async def remove_suggestion(ctx:commands.Context):
+    if suggestions_closed:
+        await ctx.send('Suggestions removals are closed until the upcoming event is over.')
+        return
+    guild = ctx.guild
+    is_hosting, watch_name = is_member_hosting(ctx.author)
+    if not is_hosting:
+        await ctx.reply('You are currently not hosting anything')
+        return
+    await ctx.send('Are you sure that you want to remove your suggestion?(y/n)')
+    response = await response_waiting(ctx)
+    if response == None:
+        return
+    if response.content.lower() in ['y','yes']:
+        is_removed = await remove_suggestion_logic(watch_name)
+        if is_removed:
+            await ctx.send('You were successfully removed from the watch suggestions.')
+        
+
+
+async def event_prep():
+    global suggestions_closed
+    global winner_to_watch_data
+    global to_watch
+    global winner_content
+    global winner_user
+    if len(to_watch) == 0:
+        return #an event should never be created then so we dont have to try and delete it.
+    winner = random.choice(list(to_watch.keys()))
+    winner_content = winner.copy()
+    winner_data = to_watch.get(winner)
+    guild = winner_data.get('guild')
+    if guild is None:
+        await asyncio.sleep(2)
+        await event_prep()
+        print('Invalid user data. Missing guild.')
+        return
+    all_events = await guild.fetch_scheduled_events()
+    if all(event.name.lower() != event_title.lower() for event in all_events):
+        return
+    suggestions_closed = True
+    winner_to_watch_data[winner] = winner_data
+    event_role = discord.utils.get(guild.roles, name= 'events')
+    channel = discord.utils.get(guild.channels, name= 'events')
+    watch_name = winner
+    member = guild.get_member(winner_data.get('id'))
+    winner_user = member.copy()
+    if not event_role or not channel:
+        print('Channel general chat or role events was not found.')
+        return
+    if member is None:
+        member = await client.fetch_user(winner_data.get('id'))
+    await channel.send(f'{event_role.mention} The randomly selected suggestion was **{watch_name}** hosted by <@{member.id}>.\nThe bot doesn\'t take any more invites or suggestion removals until the end of the event.')
+async def wait_until_event():
+    time_until_next_event = (next_sunday - datetime.now(timezone.utc)- timedelta(hours=1)).total_seconds() # 1 hour before event
+    if time_until_next_event <= 0:
+        print('Event already in the past. Error happened.')
+        return
+    await asyncio.sleep(time_until_next_event)
+    await event_prep()
+    await wait_until_event()
+
+@client.event
+async def on_scheduled_event_update(event_before:discord.ScheduledEvent, event_after:discord.ScheduledEvent):
+    global suggestions_closed
+    global to_watch
+    global winner_content
+    global winner_user
+    if event_before.name.lower() != event_title.lower():
+        return
+    if event_after.status.name == 'completed':
+        to_watch = {}
+        with open(r'data\hosting.json', 'w') as f:
+            json.dump(to_watch,f)
+        suggestions_closed = False
+    elif event_after.status.name == 'active':
+        winner_user = 1
+        winner_content = 1
+
+def add_xp_logic(member:discord.Member, amount: int = 5):
+    user_stats[member.id]['xp'] += amount
+
+@client.command()
+async def daily_xp(ctx):
+    if user_stats[ctx.author.id].get('time_redeemed') is not None:
+        if (user_stats[ctx.author.id]['time_redeemed']+ timedelta(days=1)) >= datetime.now(timezone.utc):# if the diff to 1970 from the date redeemed + 1 day is greater than now then it means that that time + 24 hours are farther from 1970 meaning farther in the future
+            diff = (user_stats[ctx.author.id]['time_redeemed']+ timedelta(days=1))- datetime.now(timezone.utc)
+            hours, rest = divmod(diff.total_seconds(),timedelta(hours=1).total_seconds())# just does a modulo and returns the rest
+            better_diff = f'{int(hours)} hours {int(rest//timedelta(minutes=1).total_seconds())} minutes'
+            await ctx.send(f'You cannot redeem your daily xp multiple times in 24 hours.\nYou still have to wait {better_diff}.')
+            return
+    amount_of_xp = 25
+    add_xp_logic(ctx.author, amount_of_xp)
+    user_stats[ctx.author.id]['time_redeemed']  = datetime.now(timezone.utc)
+    save_stats()
+    await ctx.reply(f'You got {amount_of_xp}xp added as your daily xp.')
+
+@client.command()
+@commands.has_permissions(manage_messages=True)
+async def add_xp(ctx,member:discord.Member,amount:int = 5):
+    add_xp_logic(member,amount)
+    await ctx.reply(f'Successfully added {amount}xp to {member.display_name}.')
+
+@client.command()
+async def test_spam_punishment(ctx):
+    spam_punishment()
 
 for cmd in client.commands:
     commands_list.append(cmd.name) 
 
 client.run(token)
+#TODO add a discussion recommendation if no one speeks and only if he hasnt sent anything not answereed before
+#TODO Learn complicated classes 
+#TODO add a voting system for mini mod
+#TODO create a setup command that sets up the entire envoirement that the bot needs and he only adds things if theyre not present
+#TODO fix link opener but when link is invalid
+
