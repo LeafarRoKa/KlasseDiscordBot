@@ -19,6 +19,7 @@ import platform
 import nudenet
 import re
 import urllib
+import easyocr
 load_dotenv('data/.env') 
 
 if platform.system().lower() == 'windows':
@@ -42,6 +43,14 @@ token = os.getenv('TOKEN')
 waiting_list  = {}
 d_face_reacts = ['skillissue', 'brofailed', 'rip', 'imagine']
 allowed_file_endings = ['txt']
+allowed_types_in_bytes= [b'\x89PNG',          # PNG
+                         b'\xff\xd8\xff',     # JPEG
+                         b'GIF87a',           # GIF
+                         b'GIF89a',           # GIF
+                         b'BM']               # BMP
+headers = {
+    "User-Agent": "Mozilla/5.0"
+}
 user_stats = {}
 full_logs = {}
 badges_imgs  = {}
@@ -515,19 +524,25 @@ async def on_message(message:discord.Message):
     user_message = str(message.content)
     print(f'Message {user_message} was sent by {username} in the following channel: {channel}')
 
-    #returns a score between 0 and 1 about how save a img object is
+        #returns a score between 0 and 1 about how save a img object is
     async def check_image_safety(attachment_in_bytes:bytes):
         risk = 0
         with Image.open(BytesIO(attachment_in_bytes)) as img:
-            img  = img.resize((100,100))
-            text_on_img = await asyncio.to_thread(pytesseract.image_to_string,img) 
-            is_slur, _, _ = await check_slurs_without_punishment(text_on_img, True)
+            img = img.convert('L')
+            text_on_img = ''
+            filepath = r'images\sent_img.png'
+            img.save(filepath,format='PNG')
+            text_read = await asyncio.to_thread(text_detection_ai.readtext,filepath)
+            for text in text_read:
+                text_on_img += f' {text[1]} '
+                print(text[1])
+            print(text_on_img)
+            is_slur, _, _ = await check_slurs_without_punishment(text=text_on_img, has_file=True)
             if is_slur:
                 risk += 5
                 print('Unsafe image content')
-            filepath = r'images\sent_img.png'
-            img.save(filepath,format='PNG')
             security_rating = await asyncio.to_thread(nudity_classification.detect ,filepath)
+            os.remove(filepath)
             if security_rating:
                 security_rating = max(detection['score'] for detection in security_rating)
             else:
@@ -541,19 +556,19 @@ async def on_message(message:discord.Message):
                 risk += 6
             if risk == 5 or risk == 4:
                 channel = discord.utils.get(guild.channels,name= admin_channel_name)
-                await channel.send(f'Flagged image from user {message.author.name}.\nIts risk was rated {risk}/9.', reference=message)
+                await channel.send(f'Flagged image from user <@{message.author.id}>.\nIts risk was rated {risk}/9.\nLink to message {message.jump_url}.',allowed_mentions=discord.AllowedMentions(users=True))
             elif risk > 5:
                 channel_admin = discord.utils.get(guild.channels,name= admin_channel_name)
                 await add_strike_code(message.author, '1', await client.get_context(message))
                 reason = 'sending an explicit image'
                 try:
-                    await message.author.send(f'You got one strike for {reason}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
-                    await channel_admin.send(f'User {message.author.name} got one strike for {reason}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
+                    await message.author.send(f'You got one strike for {reason}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.',allowed_mentions=discord.AllowedMentions(users=False))
+                    await channel_admin.send(f'User <@{message.author.id}> got one strike for {reason}.\nUser <@{message.author.id}> currently has {str(strikes[message.author.name])} strikes.',allowed_mentions=discord.AllowedMentions(users=False))
                 except discord.Forbidden:
-                    await message.reply(f'User {username} got one strike for {reason}.\nThis message was sent in admin because I cannot send DM to {message.author} (DMs disabled or blocked).')
+                    await message.send(f'User <@{message.author.id}> got one strike for {reason}.\nThis message was sent in admin because I cannot send DM to <@{message.author.id}> (DMs disabled or blocked).',allowed_mentions=discord.AllowedMentions(users=False))
                 except Exception as e:
                     print(e)
-                    await message.reply(f'An unexpected error occured while trying to send strike warning to {username}.\nError: {e}')
+                    await channel_admin.send(f'An unexpected error occured while trying to send strike warning to <@{message.author.id}>.\nError: {e}',allowed_mentions=discord.AllowedMentions(users=False))
                 await delete_message(message)
     
     #calls function to check for slurs and other not safe content 
@@ -563,7 +578,7 @@ async def on_message(message:discord.Message):
             print('Found url')
             try:
                 print('Opened Session')
-                async with session.head(url) as page:
+                async with session.head(url,headers=headers) as page:
                     print('opened page')
                     try:
                         size_in_bytes = page.headers.get('Content-Length')#gets the data from the page label for type of the content like a label on a package about the package content
@@ -573,15 +588,14 @@ async def on_message(message:discord.Message):
                                 async with session.get(url, timeout=10) as page:
                                     url_image = await page.read()
                                     try:
-                                        print('checking image')
                                         print(type(url_image))
+                                        if not any(url_image.startswith(bytes_starting) for bytes_starting in allowed_types_in_bytes):
+                                            raise(TypeError)
                                         image_to_check = Image.open(BytesIO(url_image))
                                         image_to_check.verify()
-                                        print('after check')
                                     except UnidentifiedImageError:
                                         continue
                                     except TypeError:
-                                        print('Will delete')
                                         await delete_message(message)
                                         print('Why did it not delete')
                                         print(type(message))
@@ -590,7 +604,7 @@ async def on_message(message:discord.Message):
                                     except Exception as e:
                                         print(e)
                                         continue
-                                    print('Will check image safety')
+                                    #print('Will check image safety')
                                     await check_image_safety(url_image)#TODO for every ten to twenti frames in a gif check its image safety
                     except urllib.error.HTTPError:
                         print('entered exception')

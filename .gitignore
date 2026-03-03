@@ -17,6 +17,7 @@ data/.env
 data/*.json
 data/*.stats
 images/sent_img.png
+data/not_set_up.json
 
 # OS generated files
 .DS_Store
