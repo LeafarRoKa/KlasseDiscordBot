@@ -1,2 +1,3 @@
-mylist = [1,3,45]
-print(mylist.sort(reverse=True))
+integre = 4
+if integre in range(1,5):
+    print('e')

@@ -19,6 +19,9 @@ import platform
 import nudenet
 import re
 import urllib
+import easyocr
+from pathlib import Path
+import python_utils
 load_dotenv('data/.env') 
 
 if platform.system().lower() == 'windows':
@@ -26,10 +29,12 @@ if platform.system().lower() == 'windows':
 elif platform.system().lower() == 'linux':
     pytesseract.pytesseract.tesseract_cmd = r"/usr/bin/tesseract"
 
+text_detection_ai = easyocr.Reader(['en']) # loads AI into that obj
 strikes = {}
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.guilds = True
 command_prefix = '!'
 client = commands.Bot(command_prefix= command_prefix, intents = intents)
 commands_list = []
@@ -42,6 +47,17 @@ token = os.getenv('TOKEN')
 waiting_list  = {}
 d_face_reacts = ['skillissue', 'brofailed', 'rip', 'imagine']
 allowed_file_endings = ['txt']
+allowed_types_in_bytes= [b'\x89PNG',          # PNG
+                         b'\xff\xd8\xff',     # JPEG
+                         b'GIF87a',           # GIF
+                         b'GIF89a',           # GIF
+                         b'BM']               # BMP
+headers = {
+    "User-Agent": "Mozilla/5.0"
+}
+permissions_per_role = {1:[discord.Permissions(view_channel=True,create_instant_invite=True,change_nickname=True, send_messages=True, create_polls=True,add_reactions=True,read_message_history=True,connect=True,use_application_commands=True,send_messages_in_threads=True,speak=True),"#2FE489F2"], 2: [discord.Permissions(view_channel=True,create_expressions=True,create_instant_invite=True, change_nickname=True,send_messages=True,send_messages_in_threads=True,create_public_threads=True,embed_links=True,attach_files=True,add_reactions=True,use_external_emojis=True,use_external_stickers=True,read_message_history=True,send_tts_messages=True,send_voice_messages=True,use_soundboard=True,use_external_sounds=True,use_voice_activation=True,use_application_commands=True,use_embedded_activities=True),"#9b59b6"],3:[discord.Permissions(view_channel=True,create_expressions=True,create_instant_invite=True,change_nickname=True,send_messages=True,send_messages_in_threads=True,create_public_threads=True,create_private_threads=True,embed_links=True,attach_files=True,add_reactions=True,use_external_emojis=True,use_external_stickers=True,read_message_history=True,send_tts_messages=True,send_voice_messages=True,connect=True,speak=True,stream=True,use_soundboard=True,use_external_sounds=True,use_voice_activation=True,use_application_commands=True,use_embedded_activities=True,use_external_apps=True), '#d261ff'],
+                        4:[discord.Permissions(view_channel=True,create_expressions=True,create_instant_invite=True,change_nickname=True,send_messages_in_threads=True,send_messages=True, create_public_threads=True,create_private_threads=True,embed_links=True,attach_files=True,add_reactions=True,use_external_emojis=True,use_external_stickers=True,read_message_history=True,send_tts_messages=True,send_voice_messages=True,create_polls=True,connect=True,speak=True,stream=True,use_soundboard=True,use_external_sounds=True,use_voice_activation=True,use_application_commands=True,use_embedded_activities=True,use_external_apps=True),'#206694'],
+                        5: [discord.Permissions(view_channel=True,create_expressions=True,manage_expressions=True,create_instant_invite=True,change_nickname=True,send_messages=True,send_messages_in_threads=True,create_private_threads=True,create_public_threads=True,embed_links=True,attach_files=True,add_reactions=True,use_external_emojis=True,use_external_stickers=True,read_message_history=True,send_tts_messages=True,send_voice_messages=True,create_polls=True,connect=True,speak=True,stream=True,use_soundboard=True,use_voice_activation=True,priority_speaker=True,use_application_commands=True,use_embedded_activities=True,use_external_apps=True,create_events=True),'#3498db']}
 user_stats = {}
 full_logs = {}
 badges_imgs  = {}
@@ -56,16 +72,26 @@ event_description = 'watching one randomly selected suggestion.'
 days_until_sunday = (6 - date.today().weekday()) % 7
 if days_until_sunday == 0:  # If today is Saturday, move to next week
     days_until_sunday = 7
-next_sunday = datetime.combine(date.today()+ timedelta(days=days_until_sunday), time(16))#16 is the time of the day that we watch
+next_sunday = datetime.combine(date.today()+ timedelta(days=days_until_sunday), time(16)) #16 is the time of the day that we watch
+months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08':  'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
+roles_imgs = {'owner': r'images/owner.png', 'mini mod': '','klassebot': r'images/bot.png', 'admin': r"images/admin.png", 'dev': r"images/dev.png", 'trial dev': r"images/trial_dev.png", 'elite member': r'images/lite_member.png', 'member': r"images/member.png", 'beginner': r'images/beginner.png', 'spammer':''}
+ending_imgs = ['png','jpeg']
+admin_channel_name = 'admin'
+bot_channel_name = 'bot'
+welcome_channel_name = 'welcome'
+event_channel_name = 'events'
+goodbye_channel_name = 'goodbye'
+server_id = 1466034380656083089
+server_stats = {}
 
-with open(r'data\roles_requirements.json','r') as f:
+with open(r'data/roles_requirements.json','r') as f:
     roles_requirements = json.load(f)
 
-with open(r'data\de.txt', 'r') as f:
+with open(r'data/de.txt', 'r') as f:
     for word in set(f):
         forbidden_words.append(word.strip('\n'))
 
-with open(r'data\en.txt', 'r') as f:
+with open(r'data/en.txt', 'r') as f:
     for word in set(f):
         forbidden_words.append(word.strip('\n'))
 
@@ -90,19 +116,22 @@ def open_save_files():
     global strikes
     try:
         #porpouse = 'stats'
-        #with open(r'data\stats.json', 'r') as f: TODO Move back once everything is migrated
+        #with open(r'data/stats.json', 'r') as f: TODO Move back once everything is migrated
         #    migrate_to_id()
         #    user_stats = json.load(f)
         porpouse = 'allowed_channels'
-        with open(r'data\allowed_channels.json', 'r') as f:
+        with open(r'data/allowed_channels.json', 'r') as f:
             allowed_channels = json.load(f)
         porpouse = 'code'
-        with open(r'data\code.json', 'r') as f:
+        with open(r'data/code.json', 'r') as f:
             code_dict = json.load(f)
         porpouse = 'strikes'
-        with open(r'data\strikes.json', 'r', encoding = 'utf-8') as f:
+        with open(r'data/strikes.json', 'r', encoding = 'utf-8') as f:
             strikes = json.load(f)   
-    except FileNotFoundError, json.decoder.JSONDecodeError:
+        porpouse = 'server_stats'
+        with open('data/server_stats.json','r') as f:
+            server_stats = json.load(f)
+    except (FileNotFoundError, json.decoder.JSONDecodeError):
         migrate_or_create(porpouse)
 
 def migrate_or_create(file_type_name:str):
@@ -115,7 +144,7 @@ def migrate_or_create(file_type_name:str):
     """
     try:
         old_path = f'{file_type_name}.json'
-        new_path = r'data\\'+file_type_name+'.json'
+        new_path = f'data/{file_type_name}.json'
         os.rename(old_path, new_path)
     except FileNotFoundError:
         with open(new_path, 'w') as f:
@@ -123,7 +152,7 @@ def migrate_or_create(file_type_name:str):
 
 open_save_files()
 
-with open(r'data\logs.json', 'r') as f:
+with open(r'data/logs.json', 'r') as f:
     save_full_logs = json.load(f)
     full_logs = {}
     for time_str, user_msgs_at_time in save_full_logs.items():
@@ -136,7 +165,7 @@ with open(r'data\logs.json', 'r') as f:
 
 async def open_hosting():
     global to_watch
-    with open(r'data\hosting.json', 'r') as f:
+    with open(r'data/hosting.json', 'r') as f:
         to_watch = json.load(f)
         for watch_data_change in to_watch.values():
             watch_data_change['watch_date'] = datetime.fromisoformat(watch_data_change.get('watch_date'))
@@ -147,36 +176,32 @@ async def open_hosting():
 
 def open_stats():
     global user_stats
-    with open(r'data\stats.json', 'r') as f:
+    with open(r'data/stats.json', 'r') as f:
         user_stats = json.load(f)
         user_stats_copy = user_stats.copy()
         for key,value in user_stats_copy.items():
-            user_stats[int(key)] = value
+            if not key.isdigit():
+                guild = client.get_guild(server_id)
+                member = discord.utils.get(guild.members,name =key)
+                if member is None:
+                    continue
+                key = member.id
+                user_stats[key] = value
+            key = int(key)
+            user_stats[key] = value
             if user_stats[key].get('time_redeemed') is None:
                 continue
             user_stats[key]['time_redeemed'] = datetime.fromisoformat(user_stats[key]['time_redeemed'])
+
 def save_stats():
     global user_stats
     for key in user_stats.keys():
         if user_stats[key].get('time_redeemed') is None:
             continue
         user_stats[key]['time_redeemed'] = str(user_stats[key]['time_redeemed'])
-    with open(r'data\stats.json', 'w') as f:
+    with open(r'data/stats.json', 'w') as f:
         json.dump(user_stats,f)
     open_stats()
-
-months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08':  'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
-roles_imgs = {'owner': r'images\owner.png', 'mini mod': '','klassebot': r'images\bot.png', 'admin': r"images\admin.png", 'dev': r"images\dev.png", 'trial dev': r"images\trial_dev.png", 'elite member': r'images\Elite_member.png', 'member': r"images\member.png", 'beginner': r'images\beginner.png', 'spammer':''}
-ending_imgs = ['png','jpeg']
-
-admin_channel_name = 'admin'
-bot_channel_name = 'bot'
-welcome_channel_name = 'welcome'
-
-#admin_channel_id = 1466034381499007084
-#bot_channel_id = 1466034381499007082
-#welcome_channel_id = 1466034381499007083
-server_id = 1466034380656083089
 
 
 
@@ -194,8 +219,11 @@ def mismatch_message(user_command):
 
 
 @client.event
-async def on_command_error(ctx, error):
+async def on_command_error(ctx:commands.Context, error:discord.message.Message):
+    print(type(error))
     print(error)
+    if getattr(error, 'handled', False):#if it doesn't have the attribute it means it wasn't handled and will return the here defined default false so it won't return if it doesn't have the attribute and if it does it only is correct if set to True
+        return
     if isinstance(error, commands.RoleNotFound):
         await ctx.send('The role does not exist.')
     elif isinstance(error, commands.MissingPermissions):
@@ -210,21 +238,30 @@ async def on_command_error(ctx, error):
         await ctx.send('I am not capable of performing actions for members above or at my same rank.')
     elif isinstance(error, commands.CommandNotFound):
         await ctx.send(mismatch_message(str(ctx.invoked_with)))
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send('You are missing an argument.',delete_after=5)
     else:
         await ctx.send('An error has occured while trying to execute this command.')
 
 
 def is_dict_complete():
+    global strikes
+    global user_stats
+    global server_stats
     for server in client.guilds:
         for member in server.members:
             if member.name not in strikes.keys() and member.name != client.user.name:
                 strikes[member.name] = 0
-                with open(r'data\strikes.json', 'w') as f:
+                with open(r'data/strikes.json', 'w') as f:
                     json.dump(strikes, f)
             if member.id not in user_stats.keys():
                 user_stats[member.id] = {'message_count': 0, 'join_date': member.joined_at.strftime('%d.%m.%Y'),'xp': 0, 'badges': []}
                 update_rank(member)
                 save_stats()
+        if server.id not in server_stats.keys():
+            server_stats[server.id] = {'set_up':False}
+            with open('data/server_stats.json','w') as f:
+                json.dump(server_stats,f)
 
 def update_rank(member: discord.Member):
     if any(role.name.lower() == 'owner' for role in member.roles):
@@ -304,7 +341,7 @@ async def on_ready():
 async def response_waiting(ctx:commands.Context, time = 30):
     waiting_confirmations.append(ctx.author.id)
     def check(msg: discord.Message):
-        return msg.author != client.user and msg.author == ctx.author and msg.channel == ctx.channel
+        return  msg.author != client.user and msg.author == ctx.author and msg.channel == ctx.channel
     try:
         response = await client.wait_for('message', timeout=time, check=check)
     except TimeoutError:
@@ -313,9 +350,26 @@ async def response_waiting(ctx:commands.Context, time = 30):
     change_confirmations.append(ctx.author.id)
     return response
 
+
+async def response_waiting_text(ctx:commands.Context, time=30):
+    response = await response_waiting(ctx,time=time)
+    if response is None:
+        return ''
+    return response.content.lower()
+
+async def confirmation(ctx:commands.Context, time=30):
+    response = await response_waiting_text(ctx,time=time)
+    if response is None:
+        return False
+    return response in ['y','yes']
+
+
 #checks for slurs in the message function
-async def check_slurs_without_punishment(message: discord.Message , text = None, has_file = False):
-    channel = message.channel.name
+async def check_slurs_without_punishment(message: discord.Message|commands.Context =  None, text = None, has_file = False):
+    if message != None: 
+        channel = message.channel.name
+    else:
+        channel = 'general'
     if text != None:
         user_message = text
     else:
@@ -500,7 +554,7 @@ async def on_message(message:discord.Message):
         for user, msgs in user_msgs_at_time.items():
             user = str(user)
             save_full_logs[time_obj][user] = msgs
-    with open(r'data\logs.json', 'w') as f:
+    with open(r'data/logs.json', 'w') as f:
         json.dump(save_full_logs, f)
 
     if message.channel != 'spam':
@@ -511,28 +565,47 @@ async def on_message(message:discord.Message):
         channel = message.channel.name
     except AttributeError:
         channel = 'DM channel'
+
     channel_id = message.channel.id
     user_message = str(message.content)
-    print(f'Message {user_message} was sent by {username} in the following channel: {channel}')
-
+    guild_name = guild.name
+    print(f'Message {user_message} was sent by {username} in the following channel: {channel} in the server {guild_name}')
+    
+    if server_stats[guild.id].get('set_up') is not None and server_stats[guild.id].get('set_up') is False:
+        if message.content.lower() != '!setup':
+            #checks if the user was doing a confirmation
+            if message.author.id in waiting_confirmations:
+                if message.author.id in change_confirmations:
+                    waiting_confirmations.remove(message.author.id)
+                    change_confirmations.remove(message.author.id)
+                return
+            await message.channel.send('You have to set up the bot with !setup to be able to use the bot.')
+        else:
+            await client.process_commands(message)
     #returns a score between 0 and 1 about how save a img object is
     async def check_image_safety(attachment_in_bytes:bytes):
         risk = 0
         with Image.open(BytesIO(attachment_in_bytes)) as img:
-            img  = img.resize((100,100))
-            text_on_img = await asyncio.to_thread(pytesseract.image_to_string,img) 
-            is_slur, _, _ = await check_slurs_without_punishment(text_on_img, True)
+            img = img.convert('L')
+            text_on_img = ''
+            filepath = r'images/sent_img.png'
+            img.save(filepath,format='PNG')
+            text_read = await asyncio.to_thread(text_detection_ai.readtext,filepath)
+            for text in text_read:
+                text_on_img += f' {text[1]} '
+                print(text[1])
+            print(f'text_on_img: {text_on_img}')
+            is_slur, _, _ = await check_slurs_without_punishment(text=text_on_img, has_file=True)
             if is_slur:
                 risk += 5
                 print('Unsafe image content')
-            filepath = r'images\sent_img.png'
-            img.save(filepath,format='PNG')
             security_rating = await asyncio.to_thread(nudity_classification.detect ,filepath)
+            os.remove(filepath)
             if security_rating:
                 security_rating = max(detection['score'] for detection in security_rating)
             else:
                 security_rating = 0
-            print(security_rating)
+            print(f'Security: {security_rating}')
             if security_rating > 0.7:
                 risk += 4
             elif security_rating > 0.75:
@@ -541,19 +614,19 @@ async def on_message(message:discord.Message):
                 risk += 6
             if risk == 5 or risk == 4:
                 channel = discord.utils.get(guild.channels,name= admin_channel_name)
-                await channel.send(f'Flagged image from user {message.author.name}.\nIts risk was rated {risk}/9.', reference=message)
+                await channel.send(f'Flagged image from user <@{message.author.id}>.\nIts risk was rated {risk}/9.\nLink to message {message.jump_url}.',allowed_mentions=discord.AllowedMentions(users=True))
             elif risk > 5:
                 channel_admin = discord.utils.get(guild.channels,name= admin_channel_name)
                 await add_strike_code(message.author, '1', await client.get_context(message))
                 reason = 'sending an explicit image'
                 try:
-                    await message.author.send(f'You got one strike for {reason}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.')
-                    await channel_admin.send(f'User {message.author.name} got one strike for {reason}.\nUser {message.author.name} currently has {str(strikes[message.author.name])} strikes.')
+                    await message.author.send(f'You got one strike for {reason}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.',allowed_mentions=discord.AllowedMentions(users=False))
+                    await channel_admin.send(f'User <@{message.author.id}> got one strike for {reason}.\nUser <@{message.author.id}> currently has {str(strikes[message.author.name])} strikes.',allowed_mentions=discord.AllowedMentions(users=False))
                 except discord.Forbidden:
-                    await message.reply(f'User {username} got one strike for {reason}.\nThis message was sent in admin because I cannot send DM to {message.author} (DMs disabled or blocked).')
+                    await message.send(f'User <@{message.author.id}> got one strike for {reason}.\nThis message was sent in admin because I cannot send DM to <@{message.author.id}> (DMs disabled or blocked).',allowed_mentions=discord.AllowedMentions(users=False))
                 except Exception as e:
                     print(e)
-                    await message.reply(f'An unexpected error occured while trying to send strike warning to {username}.\nError: {e}')
+                    await channel_admin.send(f'An unexpected error occured while trying to send strike warning to <@{message.author.id}>.\nError: {e}',allowed_mentions=discord.AllowedMentions(users=False))
                 await delete_message(message)
     
     #calls function to check for slurs and other not safe content 
@@ -563,7 +636,7 @@ async def on_message(message:discord.Message):
             print('Found url')
             try:
                 print('Opened Session')
-                async with session.head(url) as page:
+                async with session.head(url,headers=headers) as page:
                     print('opened page')
                     try:
                         size_in_bytes = page.headers.get('Content-Length')#gets the data from the page label for type of the content like a label on a package about the package content
@@ -573,15 +646,14 @@ async def on_message(message:discord.Message):
                                 async with session.get(url, timeout=10) as page:
                                     url_image = await page.read()
                                     try:
-                                        print('checking image')
                                         print(type(url_image))
+                                        if not any(url_image.startswith(bytes_starting) for bytes_starting in allowed_types_in_bytes):
+                                            raise(TypeError)
                                         image_to_check = Image.open(BytesIO(url_image))
                                         image_to_check.verify()
-                                        print('after check')
                                     except UnidentifiedImageError:
                                         continue
                                     except TypeError:
-                                        print('Will delete')
                                         await delete_message(message)
                                         print('Why did it not delete')
                                         print(type(message))
@@ -590,7 +662,7 @@ async def on_message(message:discord.Message):
                                     except Exception as e:
                                         print(e)
                                         continue
-                                    print('Will check image safety')
+                                    #print('Will check image safety')
                                     await check_image_safety(url_image)#TODO for every ten to twenti frames in a gif check its image safety
                     except urllib.error.HTTPError:
                         print('entered exception')
@@ -640,7 +712,6 @@ async def on_message(message:discord.Message):
                         await delete_message(message)
                         await delete_message(reply)
                         return
-        
                 
     #checks if the user was doing a confirmation
     if message.author.id in waiting_confirmations:
@@ -711,6 +782,11 @@ def log(log:dict,message:discord.Message,with_guild = False):
 
 @client.event
 async def on_member_update(before: discord.Member, after: discord.Member):
+    guild = before.guild
+    if not any(after.id == member.id for member in guild.members):
+        return
+    if server_stats[guild.id].get('set_up') is not None and server_stats[guild.id].get('set_up') is False:
+        return
     if before.roles != after.roles:
         update_rank(after)
 
@@ -758,7 +834,7 @@ async def is_dict_overflow():
         for user, msgs in user_msgs_at_time.items():
             user = str(user)
             save_full_logs[time_obj][user] = msgs
-    with open(r'data\logs.json', 'w') as f:
+    with open(r'data/logs.json', 'w') as f:
         json.dump(save_full_logs, f)
 
 @client.command()
@@ -855,7 +931,11 @@ async def remove_all_roles(ctx, role: discord.Role):
 
 @client.event
 async def on_member_join(member: discord.Member):
+    if client.user.id == member.id:
+        return
     guild = member.guild
+    if server_stats[guild.id].get('set_up') is not None and server_stats[guild.id].get('set_up') is False:
+        return
     channel =  discord.utils.get(guild.channels, name= 'welcome')#welcome channel
     await channel.send(f'Welcome {member.display_name} to the {guild.name} server!')
     role = discord.utils.get(guild.roles, name = 'beginner') 
@@ -876,7 +956,11 @@ async def remove_suggestion_logic(suggestion):
 
 @client.event
 async def on_member_remove(member:discord.Member):
+    if member.id == client.user.id:
+        return
     guild = member.guild
+    if server_stats[guild.id].get('set_up') is not None and server_stats[guild.id].get('set_up') is False:
+        return
     channel = discord.utils.get(guild.channels, name = 'goodbye')
     await channel.send(f'Bye {member.name} we are sorry to see you go.')
     is_hosting, suggestion = is_member_hosting(member)
@@ -1057,7 +1141,7 @@ async def strikes_punishments(member: discord.Member, ctx  = None):
     elif strikes[member.name] > 40:
         await member.kick(reason='You were kicked because you currently had 40 strikes on the server.\nPlease contact the server admins if you think this treatment is unfair.')
     
-    with open(r'data\strikes.json', 'w') as f:
+    with open(r'data/strikes.json', 'w') as f:
         json.dump(strikes, f)
 
 
@@ -1172,6 +1256,8 @@ async def check_spam():
 async def spam_punishment():
     for user in is_user_spamming:
         guild = client.get_guild(logs_temp[user].get('guild_id'))
+        if guild is None:
+            return #if server got removed
         channel = discord.utils.get(guild.channels,name= admin_channel_name) # admin channel
         if is_user_spamming[user]:
             user_name = client.get_user(user)
@@ -1276,7 +1362,7 @@ def sort_by_newest(dictionary:dict):
     return dict(sorted(sort_full_logs.items()))#.items is crucial here to not loose connection to the values
 
 @client.command()
-async def gen(ctx, user_input: str): # TODO Make it so that you can do smth like gen(first command(if this command endswith : + 4 spaces , ; (go back four spaces,(, adds a newline))) ) also mayber add a gen cmd for another language
+async def gen(ctx:commands.Context, user_input: str): # TODO Make it so that you can do smth like gen(first command(if this command endswith : + 4 spaces , ; (go back four spaces,(, adds a newline))) ) also mayber add a gen cmd for another language
     all_descriptions = 'Avalible code is:'
     for description in code_dict.keys():
         if description == 'help':
@@ -1303,6 +1389,8 @@ async def gen(ctx, user_input: str): # TODO Make it so that you can do smth like
                 waiting_confirmations.append(ctx.author.id)
                 try:
                     code = await response_waiting(ctx, time = 180)
+                    if response is None:
+                        None
                     if code.attachments and len(code.content.strip()) == 0:
                         if len(code.attachments) == 1:
                             if any(code.attachments[0].filename.lower().endswith(fileend) for fileend in allowed_file_endings):
@@ -1322,7 +1410,7 @@ async def gen(ctx, user_input: str): # TODO Make it so that you can do smth like
                 else:
                     final_code = format_to_code(code, 'python')
                 code_dict[user_input] = final_code
-                with open(r'data\code.json', 'w') as f:
+                with open(r'data/code.json', 'w') as f:
                     json.dump(code_dict, f)
             elif response.content.lower() == 'n':
                 return
@@ -1428,7 +1516,7 @@ async def add_allowed_channels(ctx, channel_id: int):
                 return
             allowed_channels[channel.name] = channel_id
             await ctx.send(f'Successfully added channel {channel.name} to the allowed channels.')
-            with open(r'data\allowed_channels.json', 'w') as f:
+            with open(r'data/allowed_channels.json', 'w') as f:
                 json.dump(allowed_channels,f)
             return
     await ctx.send('Channel was not found. Please make sure that the entered channeld ID is an existing channel.')
@@ -1439,7 +1527,7 @@ async def remove_allowed_channels(ctx, channel_id: int):
     for name, id in allowed_channels.items():
         if channel_id == id:
             allowed_channels.pop(name)
-            with open(r'data\allowed_channels.json', 'w') as f:
+            with open(r'data/allowed_channels.json', 'w') as f:
                 json.dump(allowed_channels,f)
             await ctx.send(f'Successfully removed channel {name} from the allowed channels.')
             return 
@@ -1454,7 +1542,7 @@ async def stats(ctx, user: discord.Member = None):
     try:
         avatar_in_bytes = await member.display_avatar.read() if member.avatar else await member.default_avatar.read()
         rounded_img, mask = PIL_round_img_obj(avatar_in_bytes, (395,395))
-        with Image.open(r'images\base.png','r') as img2:
+        with Image.open(r'images/base.png','r') as img2:
             white_image = img2.copy()#.copy is absolutly needed here because it would else just reference the object that doesnt exist anymore because with closes it after
         white_image.paste(rounded_img, (7,85), mask=mask)
         width, height = white_image.size
@@ -1560,6 +1648,13 @@ async def stats(ctx, user: discord.Member = None):
         draw = PIL_text_obj(draw,cords, f'Messages        {user_stats[member.id]["message_count"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
         draw = PIL_text_obj(draw,cords, f'Rank                {user_stats[member.id]["rank"]}',font_size= font_size)
+        rank_img = user_stats[member.id]["img"]
+        rank_img = Path(rank_img) # handels \ and /
+        rank_img = rank_img.as_posix()#turns all \ to /
+        if not rank_img.startswith('images/'):
+            user_stats[member.id]["img"] = f'images/{rank_img}'
+            rank_img = f'images/{rank_img}'
+        save_stats()
         cords = cords[0], cords[1] + extra
         draw = PIL_text_obj(draw,cords, f'Next rank         {user_stats[member.id]["next_rank"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
@@ -1568,7 +1663,7 @@ async def stats(ctx, user: discord.Member = None):
         draw = PIL_text_obj(draw,cords, f'Total XP           {user_stats[member.id]["xp"]}',font_size= font_size)
         cords = cords[0], cords[1] + extra
         draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
-        rank_img = user_stats[member.id]["img"]
+        
         if rank_img != '':
             try:
                 with Image.open(rank_img, 'r') as rank_img2:
@@ -1642,7 +1737,7 @@ async def save_hosting():
     for watch_data in to_save_watch_data.values():
         watch_data['watch_date'] = str(watch_data.get('watch_date'))
         watch_data['guild'] = watch_data.get('guild').id
-    with open(r'data\hosting.json', 'w') as f:
+    with open(r'data/hosting.json', 'w') as f:
         json.dump(to_save_watch_data, f)
     await open_hosting()
 
@@ -1672,6 +1767,8 @@ async def suggest(ctx: commands.Context, watch_name:str, takes_time:int = 2):
         return
     await ctx.send('Do you want to host it this weekend (You will have to set up what you proposed next sunday) (y/n)?')
     response = await response_waiting(ctx)
+    if response is None:
+                return
     if response.content.lower() in ['y','yes']:
         next_sunday = next_sunday.replace(tzinfo=timezone.utc)#next sunday replace timezone information with utc timezone
         channel = discord.utils.get(guild.voice_channels, name= 'General')
@@ -1761,11 +1858,14 @@ async def on_scheduled_event_update(event_before:discord.ScheduledEvent, event_a
     global to_watch
     global winner_content
     global winner_user
+    guild = event_after.guild
+    if server_stats[guild.id].get('set_up') is not None and server_stats[guild.id].get('set_up') is False:
+        return
     if event_before.name.lower() != event_title.lower():
         return
     if event_after.status.name == 'completed':
         to_watch = {}
-        with open(r'data\hosting.json', 'w') as f:
+        with open(r'data/hosting.json', 'w') as f:
             json.dump(to_watch,f)
         suggestions_closed = False
     elif event_after.status.name == 'active':
@@ -1796,17 +1896,148 @@ async def add_xp(ctx,member:discord.Member,amount:int = 5):
     add_xp_logic(member,amount)
     await ctx.reply(f'Successfully added {amount}xp to {member.display_name}.')
 
+@client.event
+async def on_guild_join(guild):
+    global server_stats
+    is_dict_complete()
+    server_stats[guild.id]['set_up'] = False
+@client.event
+async def on_guild_remove(guild):
+    global server_stats
+    server_stats[guild.id]['set_up'] = False
+    #TODO Add expiration date for the data
+
 @client.command()
-async def test_spam_punishment(ctx):
-    spam_punishment()
+@commands.has_permissions(manage_guild=True)
+async def setup(ctx:commands.Context):
+    global server_stats
+    guild = ctx.guild
+    admin_channel = discord.utils.get(guild.channels,name=admin_channel_name)
+    bot_channel = discord.utils.get(guild.channels,name=bot_channel_name)
+    event_channel = discord.utils.get(guild.channels,name=event_channel_name)
+    welcome_channel = discord.utils.get(guild.channels, name = welcome_channel_name)
+    goodbye_channel = discord.utils.get(guild.channels, name = goodbye_channel_name)
+    nescessary_channels = {admin_channel:admin_channel_name,bot_channel:bot_channel_name,event_channel:event_channel_name,welcome_channel:welcome_channel_name,goodbye_channel:goodbye_channel_name}
+    if any(channel is None for channel in nescessary_channels.keys()):
+        await ctx.send('Would you like to proceed with creating channels (y/n)?\n(if a needed channel doesn\'t already exist it will ask you if it is allowed to specificly create that channel.)')
+        response = await response_waiting(ctx,time=120)
+        if response is None:
+                return
+        if response.content.lower() not in ['y', 'yes']:
+            await ctx.send('successfully stopped the setup process.')
+            return
+    for channel, name in nescessary_channels.items():
+        if channel is None:
+            await ctx.send(f'A text channel called {name} is needed for the bot to work.\nBut the channel doesn\'t exist in this server. Would you like the bot to create that channel(y/n)?')
+            response = await response_waiting(ctx, time= 120)
+            if response is None:
+                return
+            if response.content.lower() not in ['y', 'yes']:
+                await ctx.send(f'Successfully cancled the creation of channel {name}')
+                return
+            if not guild.me.guild_permissions.manage_channels:
+                await ctx.send('I do not have permissions to create channels.\nI am required the permission to create channels to automaticly setup this server.')
+                return
+            await ctx.guild.create_text_channel(name)
+    async def role_name_defentition():
+        roles_name = {}
+        for i in range(1,6):
+            await ctx.send(f'What would you like to name the {i}. xp role (1.lowest-5.highest).')
+            response = await response_waiting(ctx)
+            if response is None:
+                return
+            roles_name[i] = response.content
+            if len(set(roles_name.values())) != len(roles_name.values()):
+                await ctx.send('You can\'t have two roles with the same name.\nYou will have to repeat the role naming process\n')
+                return await role_name_defentition()
+        return roles_name
+    roles_name = await role_name_defentition()
+    await ctx.send('Please make sure that the bot\'s role is above all of the other user roles that you want the bot to manage.\nThe most optimal position would be right below the owner role.\n\nIf you completed that enter ok to proceed.')
+    response = await response_waiting_text(ctx,time=600)
+    if response not in ['ok','y','yes']:
+        return 
+    for num, role_name in roles_name.items():
+        role = discord.utils.get(guild.roles, name= role_name)
+        if role is None:
+            await ctx.send(f'There is no role named {role_name}.\nWould you like me to create that role?')
+            response = await response_waiting(ctx,120)
+            if response is None:
+                return
+            if response.content.lower() in ['y','yes']:
+                if not guild.me.guild_permissions.manage_roles:
+                    await ctx.send('I do not have permissions to manage roles.\nI am required the permission to manage roles to automaticly setup this server.')
+                    return
+                r,g,b = hex_color_to_rgb(permissions_per_role[num][1])
+                rgb = other_rbg(r,g,b)
+                await guild.create_role(name=role_name,permissions= permissions_per_role[num][0],color=discord.Color(rgb))
+                role = discord.utils.get(guild.roles,name=role_name)
+                await guild.edit_role_positions({role:num})
+        #TODO come up with ideas on how to personalize this bot the most possible
+
+@setup.error
+async def setup_error(ctx:commands.Context,error:commands.CommandError):
+    if isinstance(error, discord.ext.commands.errors.CommandInvokeError):
+        await ctx.send('I do not have permission to create new roles that are a higher level than me.\nPlease make sure that the bot\'s role is placed above every role that the bot should be managing.\nThe most optimal position would be the one below the owner role.')
+        error.handled = True
+        return
+    else:
+        raise error
+    
+    
+
+def hex_color_to_rgb(hex_str:str):
+    nums =hex_str.strip('#')#if i would convert it here it would loose its structure bcs dd could turn into more than two positions but in the str it is always 2 positions
+    r = int(nums[0:2],16)#first one so pos 0 included second isn't so from 0 to and without 2 so from 0 to 1
+    g = int(nums[2:4], 16)
+    b = int(nums[4:6],16)
+    return r,g,b
+
+def full_rgb(r:int,g:int,b:int):
+    if not all(isinstance(char,int) for char in (r,g,b)):
+        return None
+    rgb = str(r)
+    rgb += str(g)
+    rgb += str(b)
+    return int(rgb)
+
+def other_rbg(r:int,g:int,b:int):
+    if not all(isinstance(char,int) for char in (r,g,b)):
+        return None
+    #rgb is 24 bit each letter occupies max 8 bit and so to combine them we do like basecly a += so like we say r move 16 to the left then move g 8 to the left and then b stays at his place and 
+    # so now we can say from the first positon (from left to right) to the 8th position we have the value r from the 8th to the 16th position we have the value of g and the rest is the value of b
+    r = r << 16
+    g = g << 8
+    b = b
+    return r+g+b # its like if you have 40 40 94 its 40 00 00 + 40 00 + 94 = 40 40 94 because they are all at different positions
+
+
+    #if admin channel doesnt exist ask if the bot should create one
+    #if bot channel doesnt exist  not ask for permission to create one
+    #ask whats the first role in the server 
+    #check if role exists else ask to create it
+    #...
+    #ask whats the 5th role that should be earned with xp if it doesnt exist ask to create one
+    #check if a welcome channel, a event channel, a goodbye channel exist if not ask to create one
 
 for cmd in client.commands:
     commands_list.append(cmd.name) 
 
 client.run(token)
+#completed have a setup dict that has all the server guild ids in it and if the id is in there of the using server then you cant use it until you have setup
+#TODO Personalisation
+#TODO split into multiple files
+#TODO to simplify the transition from a json to database and not changing everything put everything into a guild data json. Also build an automatic migration system for that
+#TODO change everything to database
+#TODO create a setup command that sets up the entire envoirement that the bot needs and he only adds things if theyre not present
+#TODO make every data dict server specific
 #TODO add a discussion recommendation if no one speeks and only if he hasnt sent anything not answereed before
 #TODO Learn complicated classes 
 #TODO add a voting system for mini mod
-#TODO create a setup command that sets up the entire envoirement that the bot needs and he only adds things if theyre not present
 #TODO fix link opener but when link is invalid
-
+#TODO remove migration system from stats opener
+#TODO change 'admin' chanel to logs channel
+#TODO make the bot more customizable per server
+#TODO for more customizibility make the events toggable
+#TODO make welcome goodbye and event channels also toggable
+#TODO test if the bot doesnt crash when not having the required permissions in a server
+#TODO fix logs displayed and file size

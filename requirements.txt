@@ -3,4 +3,5 @@ python-dotenv>=1.0.0
 Pillow>=9.5.0
 pytesseract>=0.3.10
 aiohttp>=3.8.4
+easyocr>=1.7.1
 git+https://github.com/notAI-tech/NudeNet.git
