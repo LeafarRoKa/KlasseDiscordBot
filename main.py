@@ -291,6 +291,7 @@ async def on_message(message:discord.Message):
             dont_send= True
             break
     
+    
     if dont_send == False:
         #reacting to messages
         if message.content.lower().strip() in d_face_reacts:
