@@ -26,3 +26,6 @@ Thumbs.db
 # Any IDE-specific folders
 .vscode/
 .idea/
+
+#not needed py files (self)
+te.py

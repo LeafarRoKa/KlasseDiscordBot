@@ -1,2 +1,43 @@
-print(len("0111 1001 1101 0111 0100 1111 0100 1100 0010 1101 1100 1101 0110 1111 0000 0011 1001 0101 1110 0010 0001 1101 0111 0010 1110 1011 01".replace(' ', '')))
-print(len("Der Faktor ist")*8)
+def flatten(dictionary: dict[str, str | dict]) -> dict[str, str]:
+    key_string= ''
+    while isinstance(dictionary, dict):
+        for key, val in dictionary.items():
+            if not val:
+                val = ''
+            if not key_string:
+                key_string = key
+            else:
+                key_string+= f'/{key}'
+            if type(val) != dict:
+                return {key_string:val}
+            else:
+                dictionary=val
+                
+    return dictionary
+
+print("Example:")
+print(flatten({"key": "value"}))
+
+# These "asserts" are used for self-checking
+assert flatten({"key": "value"}) == {"key": "value"}
+assert flatten({"key": {"deeper": {"more": {"enough": "value"}}}}) == {
+    "key/deeper/more/enough": "value"
+}
+assert flatten({"empty": {}}) == {"empty": ""}
+assert flatten(
+    {
+        "name": {"first": "One", "last": "Drone"},
+        "job": "scout",
+        "recent": {},
+        "additional": {"place": {"zone": "1", "cell": "2"}},
+    }
+) == {
+    "name/first": "One",
+    "name/last": "Drone",
+    "job": "scout",
+    "recent": "",
+    "additional/place/zone": "1",
+    "additional/place/cell": "2",
+}
+
+print("The mission is done! Click 'Check Solution' to earn rewards!")

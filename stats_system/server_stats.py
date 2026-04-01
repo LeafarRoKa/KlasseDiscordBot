@@ -4,6 +4,8 @@ import discord
 from typing import TypedDict
 from typing import Any as typing_any
 import os
+from discord.ext import commands
+
 def migrate_or_create(file_type_name:str):
         """
         This function either changes the file path into the data folder or if the file doesn't even exist outside the data folder 
@@ -21,7 +23,7 @@ def migrate_or_create(file_type_name:str):
                 json.dump({},f)
 
 class User_stats():
-    def __init__(self,guild:discord.Guild,server_stats,user_stats:dict =None):
+    def __init__(self,server_stats,user_stats:dict =None):
         self.server_stats = server_stats
         if user_stats is None:
             self.stats = {}
@@ -56,7 +58,7 @@ class User_stats():
         self = self.server_stats.stats[member.guild.id]['user_stats']
         roles_imgs = self.server_stats.stats[member.guild.id]['roles_imgs']
         roles_requirements = self.server_stats.stats[member.guild.id]['roles_requirements']
-        if len(roles_list) == 9 and any(role.name.lower() == roles_list[9] for role in member.roles):
+        if len(roles_list) >= 9 and any(role.name.lower() == roles_list[9] for role in member.roles):
             rank = roles_list[9]
             next_rank = 'None' 
             img = roles_imgs['owner']
@@ -64,31 +66,31 @@ class User_stats():
             rank = 'Bot'
             next_rank = 'None'
             img = roles_imgs['klassebot']
-        elif len(roles_list) == 8 and any(role.name.lower() == roles_list[8] for role in member.roles):
+        elif len(roles_list) >= 8 and any(role.name.lower() == roles_list[8] for role in member.roles):
             rank = roles_list[8]
             next_rank = f'Normally there is no greater rank beyond {roles_list[8]}.'
             img = roles_imgs['admin']
-        elif len(roles_list) == 7 and any(role.name.lower() == roles_list[7] for role in member.roles):
+        elif len(roles_list) >= 7 and any(role.name.lower() == roles_list[7] for role in member.roles):
             rank = roles_list[7]
             next_rank = roles_list[8]
             img = roles_imgs['mod']
-        elif len(roles_list) == 6 and any(role.name.lower() == roles_list[6] for role in member.roles):
+        elif len(roles_list) >= 6 and any(role.name.lower() == roles_list[6] for role in member.roles):
             rank = roles_list[6]
             next_rank = roles_list[7]
-            img = roles_imgs['mini_mod']
-        elif len(roles_list) == 5 and any(role.name.lower() == roles_list[5] for role in member.roles):
+            img = roles_imgs['mini mod']
+        elif len(roles_list) >= 5 and any(role.name.lower() == roles_list[5] for role in member.roles):
             rank = roles_list[5]
             next_rank =  roles_list[6]
             img = roles_imgs['dev']
-        elif len(roles_list) == 4 and any(role.name.lower() == roles_list[4] for role in member.roles):
+        elif len(roles_list) >= 4 and any(role.name.lower() == roles_list[4] for role in member.roles):
             rank = roles_list[4]
             next_rank = roles_list[5]
             img = roles_imgs['trial dev']
-        elif len(roles_list) == 3 and any(role.name.lower() == roles_list[3] for role in member.roles):
+        elif len(roles_list) >= 3 and any(role.name.lower() == roles_list[3] for role in member.roles):
             rank = roles_list[3]
             next_rank = roles_list[4]
             img = roles_imgs['trial member']
-        elif len(roles_list) == 2 and any(role.name.lower() == roles_list[2] for role in member.roles):
+        elif len(roles_list) >= 2 and any(role.name.lower() == roles_list[2] for role in member.roles):
             rank = roles_list[2]
             next_rank = roles_list[3]
             img = roles_imgs['member']
@@ -123,13 +125,11 @@ class User_stats():
                 promotion_path = 'There is no greater rank beyond Owner'
 
             self.stats[member.id]['xp_for_next_rank'] = promotion_path
-        self.save_stats()
 
     def add_member(self,member:discord.Member):
         self = self.server_stats.stats[member.guild.id]['user_stats']
         self.stats[member.id] = {'message_count': 0, 'join_date': member.joined_at.strftime('%d.%m.%Y'),'xp': 0, 'badges': []}
         self.update_rank(member,self.server_stats.stats[member.guild.id]['server_roles'])
-        self.save_stats()
 
     def complete(self,guild:discord.Guild):
         if self.server_stats.client.get_guild(guild.id) is None:
@@ -146,7 +146,6 @@ class User_stats():
         
         self.server_stats.stats[member.guild.id]['user_stats'].stats[member.id]['xp'] += 5*amount
         self.server_stats.stats[member.guild.id]['user_stats'].stats[member.id]['message_count'] += amount
-        self.server_stats.save_stats()
     
     def add_xp(self,member:discord.Member,amount:int=5):
         self.server_stats.stats[member.guild.id]['user_stats'].stats[member.id]['xp'] += amount
@@ -160,30 +159,33 @@ class User_stats():
 class Server_stats():
     stats: dict[int,dict[str, dict]]
     def __init__(self,client):
-        self.client = client
-        self.stats = {}
+        self.client = client if isinstance(client,commands.Bot) else None #client should always be a discord Bot unless if its for testing porpouses 
+        self.stats = {} if isinstance(client, commands.Bot) else client
         self.open_stats()
+        if type(client) != commands.Bot:
+            return
+        self.client: commands.Bot
         self.is_dict_complete()
         self.save_stats()
-        self.client: discord.Client
-
+        
     def open_stats(self):
         try:
             porpouse = 'server_stats'
             with open('data/server_stats.json','r') as f:
-                stats = json.load(f)
+                stats = json.load(f) if self.stats.get('0') is None else self.stats
         except (FileNotFoundError, json.decoder.JSONDecodeError):
             migrate_or_create(porpouse)
             self.open_stats()
         for guild_id in stats.keys():
-            stats[guild_id]['user_stats'] = User_stats(self.client.get_guild(guild_id),server_stats=self,user_stats=stats[guild_id]['user_stats'])
-            stats[guild_id]['user_stats'].stats =  stats[guild_id]['user_stats'].open_stats()
-            stats[guild_id]['server_roles'] = {int(k):v for k,v in stats[guild_id]['server_roles'].items()}
+            stats[guild_id]['user_stats'] = self.stats.get('user_stats') and self.stats.get('user_stats') or User_stats(server_stats=self,user_stats=stats[guild_id]['user_stats']) 
+            stats[guild_id]['user_stats'].stats =  stats[guild_id]['user_stats'].open_stats() 
+            stats[guild_id]['server_roles'] = {int(k):v for k,v in stats[guild_id]['server_roles'].items()} 
             stats[guild_id]['roles_requirements'] = {int(k):v for k,v in  stats[guild_id]['roles_requirements'].items()}
             stats[guild_id]['server_roles'] = {int(k):v for k,v in stats[guild_id]['server_roles'].items()}
             stats[guild_id]['allowed_channels'] = {k:int(v) for k,v in stats[guild_id]['allowed_channels'].items()}
             stats[guild_id]['to_watch'] = {watch_name:{k:datetime.fromisoformat(v) if k == 'watch_date' else int(v) for k,v in dict(watch_data).items()} for watch_name,watch_data in stats[guild_id]['to_watch'].items()}
             stats[guild_id]['strikes'] = {int(k): int(v) for k,v in stats[guild_id]['strikes'].items()}
+            stats[guild_id]['winner_data'] =  {watch_name:{k:datetime.fromisoformat(v) if k == 'watch_date' else int(v) for k,v in dict(watch_data).items()} for watch_name,watch_data in stats[guild_id]['winner_data'].items()}
             if stats.get(guild_id).get('roles_imgs') is None:
                 stats[guild_id]['roles_imgs'] = {'owner': r'images/owner.png', 'mod':'','mini mod': '','klassebot': r'images/bot.png', 'admin': r"images/admin.png", 'dev': r"images/dev.png", 'trial dev': r"images/trial_dev.png", 'elite member': r'images/lite_member.png', 'member': r"images/member.png", 'beginner': r'images/beginner.png', 'spammer':''}
             else:
@@ -192,11 +194,14 @@ class Server_stats():
         
 
     def save_stats(self):
+        if self.stats.get(0) or self.stats.get('0'):
+                return
         to_save = {}
         for guild_id in self.stats.keys():
             to_save[guild_id] = {k:v for k,v in self.stats[guild_id].items() if k != 'user_stats'}
             to_save[guild_id]['user_stats'] = self.stats[guild_id]['user_stats'].save_stats()
             to_save[guild_id]['to_watch'] = {k:{k2:str(v2) for k2,v2 in v.items()} for k,v in to_save[guild_id]['to_watch'].items()}
+            to_save[guild_id]['winner_data'] = {k:{k2:str(v2) for k2,v2 in v.items()} for k,v in to_save[guild_id]['winner_data'].items()}
         with open('data/server_stats.json','w') as f:
             json.dump(to_save,f)
         self.open_stats()
@@ -209,23 +214,23 @@ class Server_stats():
 
     def winner_user(self,guild:discord.Guild):
         if self.stats[guild.id]['winner_data']:
-            user_id = list(self.stats[guild.id]['winner_data'].values())[0]
-            return self.client.get_guild(user_id)
+            suggestion = list(self.stats[guild.id]['winner_data'])[0]
+            user_id = self.stats[guild.id]['winner_data'][suggestion]['id']
+            return guild.get_member(user_id)
         return None
 
     def winner_content(self,guild:discord.Guild):
-        return None if self.winner_user(guild) is None else list(self.stats[guild.id]['winnner_data'].keys())[0]
+        return None if self.winner_user(guild) is None else list(self.stats[guild.id]['winner_data'].keys())[0]
         
 
     def is_dict_complete(self):
         for guild in self.client.guilds:
             if guild.id not in self.stats.keys():
-                self.stats[guild.id] = {'set_up':False,'user_stats':User_stats(guild,self),'roles_requirements': {"1": {"xp": 0, "strikes": 99},"2": {"xp": 500, "strikes": 99}, "3": {"xp": 2500, "strikes": 50}, "4": {"xp": 5000, "strikes": 20}, "5": {"xp": 12500, "strikes": 10}},'roles_imgs':  {'owner': r'images/owner.png', 'mod':'','mini mod': '','klassebot': r'images/bot.png', 'admin': r"images/admin.png", 'dev': r"images/dev.png", 'trial dev': r"images/trial_dev.png", 'elite member': r'images/lite_member.png', 'member': r"images/member.png", 'beginner': r'images/beginner.png', 'spammer':''},'server_roles': {},'strikes':{},'allowed_channels':{},'suggestions_closed': True,'to_watch':{},'winner_data':{},'winner': None,'winner_watch':None} 
+                self.stats[guild.id] = {'set_up':False,'user_stats':User_stats(self),'roles_requirements': {"1": {"xp": 0, "strikes": 99},"2": {"xp": 500, "strikes": 99}, "3": {"xp": 2500, "strikes": 50}, "4": {"xp": 5000, "strikes": 20}, "5": {"xp": 12500, "strikes": 10}},'roles_imgs':  {'owner': r'images/owner.png', 'mod':'','mini mod': '','klassebot': r'images/bot.png', 'admin': r"images/admin.png", 'dev': r"images/dev.png", 'trial dev': r"images/trial_dev.png", 'elite member': r'images/lite_member.png', 'member': r"images/member.png", 'beginner': r'images/beginner.png', 'spammer':''},'server_roles': {},'strikes':{},'allowed_channels':{},'suggestions_closed': True,'to_watch':{},'winner_data':{},'winner': None,'winner_watch':None, 'badges_imgs':{}}
             for member in guild.members:
                 if self.stats[guild.id]['strikes'].get(member.id) is None:
                     self.stats[guild.id]['strikes'][member.id] = 0
-            self.save_stats()
-            
+
 
     def user_stats(self,guild:discord.Guild):
         return self.stats[guild.id]['user_stats']
