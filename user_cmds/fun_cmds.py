@@ -14,11 +14,9 @@ class Fun_cmds(commands.Cog):
 
     @commands.command(help='This cmd gives you a bit of xp every 24 hours.',brief='Gives xp every 24 hours.')
     async def daily_xp(self,ctx:commands.Context):
-        for key,obj in vars(ctx).items():
-            print(f'{key} : {obj}')
         user_stats = self.server_stats.user_stats(ctx.guild)
-        can_use, hours,minutes = can_do_daily(user_stats[ctx.author.id].get('time_redeemed'))
-        if can_use:
+        can_use, hours,minutes = can_do_daily(user_stats.stats[ctx.author.id].get('time_redeemed'))
+        if not can_use:
             better_diff = f'{int(hours)} hours {minutes} minutes'
             reply = await ctx.reply(f'You cannot redeem your daily xp multiple times in 24 hours.\nYou still have to wait {better_diff}.')
             await delete_message([ctx.message,reply],time=5)

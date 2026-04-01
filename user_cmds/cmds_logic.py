@@ -1,6 +1,6 @@
 from PIL import ImageFont, ImageDraw,Image
 from io import BytesIO
-from datetime import timedelta,datetime
+from datetime import timedelta,datetime, timezone
 def format_to_code(code: str, language:str):
     if len(code) >= 2000:
         final_code = code
@@ -41,9 +41,11 @@ def PIL_round_img_obj(img, size = None):
 
 
 def can_do_daily(time_redeemed:datetime = None):
-    if not time_redeemed or time_redeemed+timedelta(days=1) < datetime.now():# if the diff to 1970 from the date redeemed + 1 day is greater than now then it means that that time + 24 hours are farther from 1970 meaning farther in the future
+    if time_redeemed and not time_redeemed.tzinfo:
+        time_redeemed = time_redeemed.replace(tzinfo = timezone.utc)
+    if not time_redeemed or time_redeemed+timedelta(days=1) < datetime.now(timezone.utc):# if the diff to 1970 from the date redeemed + 1 day is greater than now then it means that that time + 24 hours are farther from 1970 meaning farther in the future
         return True, 0,0
-    diff = ((time_redeemed+timedelta(days=1)) - datetime.now())
+    diff = ((time_redeemed+timedelta(days=1)) - datetime.now(timezone.utc))
     hours, rest = divmod(diff.total_seconds(), timedelta(hours=1).total_seconds())
     minutes =  int(rest//timedelta(minutes=1).total_seconds())# just does a modulo and returns the rest
     return False, hours, minutes
