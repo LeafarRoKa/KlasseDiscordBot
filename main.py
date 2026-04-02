@@ -115,6 +115,7 @@ async def on_ready():
 commands_list = [cmd.name for cmd in client.commands]
 
 
+
 client.run(token)
 #completed testing system
 #completed set the default of the gen command parameter to help
