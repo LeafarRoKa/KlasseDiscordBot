@@ -111,10 +111,12 @@ async def on_ready():
     server_stats.is_dict_complete()
     print(f'Logged in as bot {client}')
     await wait_until_event(server_stats=server_stats,client=client)
+    client.is_ready  = True
 commands_list = [cmd.name for cmd in client.commands]
 
 
 client.run(token)
+#completed testing system
 #completed set the default of the gen command parameter to help
 #completed LOAD ALL COGS and fix everything!
 #completed have a setup dict that has all the server guild ids in it and if the id is in there of the using server then you cant use it until you have setup
