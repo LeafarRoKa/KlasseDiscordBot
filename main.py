@@ -111,7 +111,7 @@ async def on_ready():
     server_stats.is_dict_complete()
     print(f'Logged in as bot {client}')
     await wait_until_event(server_stats=server_stats,client=client)
-    client.is_ready  = True
+    
 commands_list = [cmd.name for cmd in client.commands]
 
 
