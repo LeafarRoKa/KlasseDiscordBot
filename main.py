@@ -102,7 +102,7 @@ async def on_command_error(ctx:commands.Context, error:discord.message.Message):
     else:
         await ctx.send('An error has occured while trying to execute this command.',delete_after=5)
     await delete_message(ctx.message,time=5)
-
+    
 @client.event
 async def on_ready():
     global server_stats
