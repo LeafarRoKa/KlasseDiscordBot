@@ -1,5 +1,5 @@
-from shared_vars import commands, Server_stats, code_dict, discord, save_data, allowed_file_endings, months
-from message_events.message_management import response_waiting
+from shared_vars import commands, Server_stats, code_dict, discord, save_data, ALLOWED_FILE_ENDINGS, MONTHS
+from message_events.message_management_logic import response_waiting
 from user_cmds.cmds_logic import format_to_code, PIL_round_img_obj,PIL_text_obj
 from io import BytesIO
 from PIL import Image, ImageDraw
@@ -7,6 +7,12 @@ import aiohttp
 from pathlib import Path
 class Basic_cmds(commands.Cog):
     def __init__(self, client:commands.Bot,server_stats:Server_stats):
+        """Initialize the class with the discord bot and the server stats. Additionally saves all Cogs under attributes.
+
+        Args:
+            client (commands.Bot): The discord Bot.
+            server_stats (Server_stats): The server stats.
+        """
         self.client = client
         self.server_stats = server_stats
     @commands.command(help='This cmd gives you the code for the given code name.',brief='Gives code for the given name.')
@@ -37,16 +43,16 @@ class Basic_cmds(commands.Cog):
                     code = await response_waiting(ctx, self.client,time = 180)
                     if response is None:
                         return 
-                    if code.attachments and len(code.content.strip()) == 0:
+                    if code.attachments and not code.content.strip():
                         if len(code.attachments) == 1:
-                            if any(code.attachments[0].filename.lower().endswith(fileend) for fileend in allowed_file_endings):
+                            if any(code.attachments[0].filename.lower().endswith(fileend) for fileend in ALLOWED_FILE_ENDINGS):
                                 content_in_bytes = await code.attachments[0].read()
                                 try:
                                     code  = content_in_bytes.decode('UTF-8')
                                 except UnicodeDecodeError:
                                     print(f'Error while trying to decode file')
-                        if isinstance(code, discord.Message):
-                            code = code.content
+                    if isinstance(code, discord.Message):
+                        code = code.content
                     final_code = format_to_code(code, 'python')
                     code_dict[user_input] = final_code
                     save_data('code', code_dict)
@@ -64,11 +70,11 @@ class Basic_cmds(commands.Cog):
         if user_input in code_dict.keys():
             await ctx.send('What would you like to change the code to?(Enter exit to exit.)')
             code = await response_waiting(ctx,self.client)
-            if code == None:
+            if not code:
                 return
-            if code.content == 'exit':
+            if code.content.lower() == 'exit':
                 return
-            final_code = format_to_code(code.content)
+            final_code = format_to_code(code.content,'python')
             code_dict[user_input] = final_code
             save_data('code',code_dict)
         else:
@@ -199,7 +205,7 @@ class Basic_cmds(commands.Cog):
                 if counter == 0:
                     day = str(split)
                 elif counter == 1:
-                    month = months[split]
+                    month = MONTHS[split]
                 elif counter == 2:
                     year = str(split)
                 counter += 1
@@ -216,7 +222,7 @@ class Basic_cmds(commands.Cog):
             if not rank_img.startswith('images/'):
                 user_stats.stats[member.id]["img"] = f'images/{rank_img}'
                 rank_img = f'images/{rank_img}'
-            self.server_stats.save_stats
+            await self.server_stats.save_stats()
             cords = cords[0], cords[1] + extra
             draw = PIL_text_obj(draw,cords, f'Next rank         {user_stats.stats[member.id]["next_rank"]}',font_size= font_size)
             cords = cords[0], cords[1] + extra
@@ -252,4 +258,3 @@ class Basic_cmds(commands.Cog):
         except Exception as e:
             print(e)
             await ctx.reply('An error occoured while trying to execute this command!')
-

@@ -3,6 +3,19 @@ import random
 from datetime import datetime,timezone,timedelta
 import asyncio
 async def event_prep(guild:discord.Guild,server_stats:Server_stats):
+    """Run event preparation, including:
+        - choose the winning suggestion
+        - close suggestions
+        - update the winner data with the data of the winning suggestion
+        - send a message with a ping for the role events that announces the event and the winner data.
+
+Args:
+        guild (discord.Guild): The guild where the event should happen.
+        server_stats (Server_stats): The server stats.
+
+Returns:
+    None: Returns early if required data is missing or no suggestions are available.
+    """
     to_watch = server_stats.stats[guild.id]['to_watch']
     if not to_watch:
         return #an event should never be created then so we dont have to try and delete it.
@@ -24,7 +37,14 @@ async def event_prep(guild:discord.Guild,server_stats:Server_stats):
         return
     await channel.send(f'{event_role.mention} The randomly selected suggestion was **{winner}** hosted by <@{member.id}>.\nThe bot doesn\'t take any more invites or suggestion removals until the end of the event.' if event_role else f'The randomly selected suggestion was **{winner}** hosted by <@{member.id}>.\nThe bot doesn\'t take any more invites or suggestion removals until the end of the event.')
 
+
 async def wait_until_event(server_stats:Server_stats,client:commands.Bot):
+    """Counts down until event start.
+
+    Args:
+        server_stats (Server_stats): The server stats.
+        client (commands.Bot): The discord bot.
+    """
     time_until_next_event = (next_sunday - datetime.now(timezone.utc)- timedelta(hours=1)).total_seconds() # 1 hour before event
     if time_until_next_event <= 0:
         print('Event already in the past. Error happened.')

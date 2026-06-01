@@ -4,11 +4,22 @@ from suggestion_system.suggestion_logic import is_member_hosting, remove_suggest
 from event_listeners.event_logics import event_prep
 class Basic_events(commands.Cog):
     def __init__(self, client:commands.Bot,server_stats:Server_stats):
+        """Initialize the class with the discord bot and the server stats.
+
+        Args:
+            client (commands.Bot): The discord Bot.
+            server_stats (Server_stats): The server stats.
+        """
         self.client = client
         self.server_stats = server_stats
         
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
+        """Gets called when a member joines a guild. Sends a welcome message and adds the member to the stats. Adds the lowest role to the member.
+
+        Args:
+            member (discord.Member): The member that joined.
+        """
         if self.client.user.id == member.id:
             return
         guild = member.guild
@@ -25,13 +36,19 @@ class Basic_events(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member:discord.Member):
+        """Called when a member leaves a guild. Sends a goodbye message and removes suggestion if the member has one.
+
+        Args:
+            member (discord.Member): The member that left.
+        """
         if member.id == self.client.user.id:
             return
         guild = member.guild
         if self.server_stats.stats[guild.id].get('set_up') is not None and self.server_stats.stats[guild.id].get('set_up') is False:
             return
         channel = discord.utils.get(guild.channels, name = 'goodbye')
-        await channel.send(f'Bye <@{member.id}> we are sorry to see you go.')
+        if channel:
+            await channel.send(f'Bye <@{member.id}> we are sorry to see you go.')
         is_hosting, suggestion = is_member_hosting(member,self.server_stats)
         if is_hosting:
             is_removed = await remove_suggestion_logic(suggestion,member.guild, self.server_stats)
@@ -41,6 +58,12 @@ class Basic_events(commands.Cog):
     
     @commands.Cog.listener()
     async def on_member_update(self,before: discord.Member, after: discord.Member):
+        """Called when a member's profile changes. Updates user stats role if roles were changed.
+
+        Args:
+            before (discord.Member): The member before changes.
+            after (discord.Member): The member after changes.
+        """
         guild = before.guild
         if not any(after.id == member.id for member in guild.members):
             return
@@ -51,6 +74,24 @@ class Basic_events(commands.Cog):
 
     @commands.Cog.listener()
     async def on_scheduled_event_update(self,event_before:discord.ScheduledEvent, event_after:discord.ScheduledEvent):
+        """Called when a guild scheduled event is updated. Makes the following changes if the bot event is affected:
+            - if the event is completed:
+                - resets:
+                    - The suggestions
+                    - Winner data
+                    - winning user 
+                    - winner suggestion 
+
+                - opens the suggestions
+                
+            - if the event is active:
+                - runs event preparation
+                - sets the winner user and data to 1
+
+Args:
+    event_before (discord.ScheduledEvent): The event before changes.
+    event_after (discord.ScheduledEvent): The event after changes.
+        """
         guild = event_after.guild
         if self.server_stats.stats[guild.id].get('set_up') is not None and self.server_stats.stats[guild.id].get('set_up') is False:
             return
@@ -62,7 +103,7 @@ class Basic_events(commands.Cog):
             self.server_stats.stats[event_after.guild.id]['suggestions_closed'] = False
             self.server_stats.stats[event_after.guild.id]['winner_user'] = None
             self.server_stats.stats[event_after.guild.id]['winner_watch'] = None
-            self.server_stats.save_stats()
+            await self.server_stats.save_stats()
         elif event_after.status.name == 'active':
             if not self.server_stats.stats[event_after.guild.id]['winner_data']:
                 await event_prep(event_after.guild,self.server_stats)
@@ -70,11 +111,21 @@ class Basic_events(commands.Cog):
             self.server_stats.stats[event_after.guild.id]['winner_watch'] = 1
 
     @commands.Cog.listener()
-    async def on_guild_join(self,guild):
+    async def on_guild_join(self,guild:discord.Guild):
+        """Called when the bot gets added to a guild. Adds the guild to the server stats. 
+
+        Args:
+            guild (discord.Guild): Guild where the bot was added.
+        """
         self.server_stats.is_dict_complete()
         self.server_stats.stats[guild.id]['set_up'] = False
 
     @commands.Cog.listener()
-    async def on_guild_remove(self,guild):
+    async def on_guild_remove(self,guild:discord.Guild):
+        """Called when the bot gets removed from a guild. Sets the value set_up to False for that guild.
+
+        Args:
+            guild (discord.Guild): Guild the bot was removed from.
+        """
         self.server_stats.stats[guild.id]['set_up'] = False
         #TODO Add expiration date for the data

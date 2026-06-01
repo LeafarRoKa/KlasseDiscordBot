@@ -1,21 +1,27 @@
 from shared_vars import commands, Server_stats,discord
 from user_management.user_strikes import add_strike_code,set_strikes_code
+from user_management.user_management_logic import get_member
 class User_strikes(commands.Cog):
     def __init__(self, client:commands.Bot,server_stats:Server_stats):
+        """Initialize the class with the discord bot and the server stats. Additionally saves all Cogs under attributes.
+
+        Args:
+            client (commands.Bot): The discord Bot.
+            server_stats (Server_stats): The server stats.
+        """
         self.client = client
         self.server_stats = server_stats
     
     @commands.command(help='This cmd adds the amount of strikes given to the given user.',brief='Adds a strike to the given user.')
     @commands.has_permissions(moderate_members=True)
     @commands.bot_has_permissions(moderate_members= True)
-
-    async def add_strikes(self,ctx, member: discord.Member, amount = '1' ):
+    async def add_strikes(self,ctx, member: discord.Member, amount = '1' ,reason = 'No reason provided.'):
         try:
             if amount == 1:
                 await ctx.send(f'Added {amount} strike to {member.name}.')
             else:
                 await ctx.send(f'Added {amount} strikes to {member.name}.')
-            await add_strike_code(member,self.server_stats, amount)
+            await add_strike_code(member,self.server_stats, amount,reason)
         except discord.Forbidden:
             await ctx.send(f'I do not have permission to do that.')
         except Exception as e:
@@ -31,20 +37,24 @@ class User_strikes(commands.Cog):
     @commands.command(help='This cmd lists all the strikes of every user in the server if no user is given. If a user is given it will just show the strikes of that user.',brief='Lists the strikes of everyone.')
     @commands.has_permissions(manage_roles= True)
     @commands.bot_has_permissions(manage_roles= True)
-    async def strikes_list(self, ctx, member:discord.Member=None):
+    async def strikes_list(self, ctx:commands.Context, member:discord.Member=None):
         answer = ''
         strikes = self.server_stats.strikes(ctx.guild)
         for key, value in strikes.items():
             if member and key != member.id:
                 continue
-            key = self.client.get_user(key)
+            if len(answer.split('\n'))-1 >= ctx.guild.member_count:
+                break 
+            key = await get_member(ctx.guild,key)
+            if not key:
+                continue
             key = key.display_name
             if key is None:
                 continue
             if value == 1:
-                answer += (f'User: {key} has {value} strike.\n')
+                answer += f'User: {key} has {value} strike.\n'
             else:
-                answer += (f'User: {key} has {value} strikes.\n')
+                answer += f'User: {key} has {value} strikes.\n'
         await ctx.send(answer)
     @commands.command(help='This cmd shows you how many strikes you currently have.',brief='Shows how many strikes you have.')
     async def my_strikes(self,ctx):

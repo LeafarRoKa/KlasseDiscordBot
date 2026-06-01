@@ -1,13 +1,19 @@
 import discord
-from shared_vars import admin_channel_name, Server_stats, commands, forbidden_words, logs_temp
+from shared_vars import admin_channel_name, Server_stats, commands, forbidden_words
 from user_management.user_management_logic import promote
 import difflib
 from user_management.user_strikes import add_strike_code
 import statistics
-from message_events.message_management import del_old_logs, delete_message
+from message_events.message_management_logic import del_old_logs, delete_message
 import re
 
 async def rank_check(member: discord.Member, server_stats:Server_stats):
+    """Promotes a member to the next rank (discord role) if the needed requirements are met. 
+
+    Args:
+        member (discord.Member): The member to be promoted.
+        server_stats (Server_stats): The server stats.
+    """
     guild = member.guild
     user_stats = server_stats.user_stats(guild)
     next_rank = user_stats.stats[member.id]['next_rank']
@@ -21,11 +27,22 @@ async def rank_check(member: discord.Member, server_stats:Server_stats):
             new_rank = discord.utils.get(guild.roles, name = next_rank)
             await promote(old_rank, new_rank, member,server_stats)
 
+
 def sort_by_newest(dictionary:dict):
+    """Sorts the logs dictionary from newest to oldest.
+
+    Args:
+        dictionary (dict): The logs dictionary.
+
+    Returns:
+        dict: The sorted dictionary.
+    """
     log_dict = dictionary.copy()
     sort_full_logs = {}
     for user,msg_list in log_dict.items():
         for time_obj,msgs in msg_list.items():
+            if time_obj == 'guild_id':
+                continue
             if isinstance(time_obj,int):
                 time_obj, user = user, time_obj
             if time_obj not in sort_full_logs:
@@ -34,14 +51,23 @@ def sort_by_newest(dictionary:dict):
                 sort_full_logs[time_obj][user] = []
             for msg in msgs:
                 sort_full_logs[time_obj][user].append(msg)
-    return dict(sorted(sort_full_logs.items()))#.items is crucial here to not loose connection to the values
+    return dict(sorted(sort_full_logs.items(), reverse=True))#.items is crucial here to not loose connection to the values
 
-async def check_spam_without_punishment():
+async def check_spam_without_punishment(guild:discord.Guild, server_stats:Server_stats) -> bool:
+    """Checks if the messages in the guilds temp logs are spam.
+
+    Args:
+        guild (discord.Guild): The guild to check the spam in.
+        server_stats (Server_stats): The server stats.
+
+    Returns:
+        bool: Returns True if at least one user is spamming else False.
+    """
     global is_user_spamming
-    global logs_temp
-    del_old_logs()
+    TEMP_LOGS = server_stats.stats[guild.id]['temp_logs']
+    await del_old_logs(server_stats)
     is_user_spamming = {}
-    for user, message_logs in logs_temp.items():
+    for user, message_logs in TEMP_LOGS.items():
         all_msg_per_user = []
         for message_list in message_logs.values():
             if isinstance(message_list,int):
@@ -78,50 +104,76 @@ async def check_spam_without_punishment():
             print(user_match_percentage)
             if user_match_percentage > 0.92:
                 if len(all_msg_per_user) > 5:
-                    is_user_spamming[user] = True
+                    is_user_spamming[f'{user}#{guild.id}'] = True
             else:
-                is_user_spamming[user] = False
+                is_user_spamming[f'{user}#{guild.id}'] = False
         else:
-            is_user_spamming[user] = False
+            is_user_spamming[f'{user}#{guild.id}'] = False
 
     for user, is_spam in is_user_spamming.items():
         if is_spam:
             return True
     return False
 
-async def check_spam(client,server_stats):
-    await check_spam_without_punishment()
+async def check_spam(client:commands.Bot, guild:discord.Guild,server_stats:Server_stats):
+    """Checks spam and applies the corresponding punishment to each user.
+
+    Args:
+        client (commands.Bot): The discord bot.
+        guild (discord.Guild): The guild to check spam for.
+        server_stats (Server_stats): The server stats.
+    """
+    await check_spam_without_punishment(guild, server_stats)
     await spam_punishment(client,server_stats)
     
-async def spam_punishment(client,server_stats):
-    global logs_temp
+async def spam_punishment(client:commands.Bot,server_stats:Server_stats):
+    """Applies punishment for all users spamming.
+
+    Args:
+        client (commands.Bot): The discord bot.
+        server_stats (Server_stats): The server stats.
+    """
     for user in is_user_spamming:
-        guild = client.get_guild(logs_temp[user].get('guild_id'))
+        user_id = int(user.split('#')[0])
+        guild = client.get_guild(int(user.split('#')[1]))
         if guild is None:
-            return #if server got removed
+            continue #if server got removed
         channel = discord.utils.get(guild.channels,name= admin_channel_name) # admin channel
         if is_user_spamming[user]:
-            user_name = client.get_user(user)
-            await channel.send(f'User {user_name} is spamming.')
-            user_obj = guild.get_member(user)
-            if user_obj == None:
-                user_obj = client.fetch_user(user)
-            await add_strike_code(user_obj,server_stats, 1)
-            logs_temp[user] = {}
+            user_obj = guild.get_member(user_id)
+            if not user_obj:
+                user_obj = await guild.fetch_member(user_id)
+            await channel.send(f'User <@{user_id}> is spamming.',allowed_mentions=discord.AllowedMentions(users=False))
+            await add_strike_code(user_obj,server_stats, 1,reason='Spamming')
             is_user_spamming[user] = False
             break
 
 #checks for slurs in the message function
-async def check_slurs_without_punishment(message: discord.Message|commands.Context =  None, text = None, has_file = False):
-    if message != None: 
+async def check_slurs_without_punishment(message: discord.Message|commands.Context =  None, text:str = None, has_file = False) -> tuple[bool,str,str]:
+    """Checks a message or a command context for slurs without applying punishment. If an image text should be checked, the message parameter can be ignored.
+
+    Args:
+        message (discord.Message | commands.Context, optional): The message or command context to check for slurs. Defaults to None.
+        text (str, optional): The text on an image to be checked. Defaults to None.
+        has_file (bool, optional): If the message contained an image. Defaults to False.
+
+    Returns:
+        tuple[bool,str,str]: A tuple containing: 
+                                - True if the slurs were found, else False.
+                                - The source of the slurs.
+                                - The slur word.
+    """
+    if isinstance(message,commands.Context):
+        message = message.message
+    if message: 
         channel = message.channel.name
     else:
         channel = 'general'
-    if text != None:
+    if text is not None:
         user_message = text
     else:
         user_message = message.content
-    if has_file != False:
+    if has_file:
         reason = 'sending an image containing'
     else:
         reason = 'sending'
@@ -135,13 +187,23 @@ async def check_slurs_without_punishment(message: discord.Message|commands.Conte
 
 
 async def check_slurs(message: discord.Message | commands.Context, server_stats:Server_stats, client:commands.Bot, text = None, has_file = False):
+    """Checks a message, command context, or an image text for slurs and applies the corresponding punishment.
+
+    Args:
+        message (discord.Message | commands.Context): The message or command context to check for slurs.
+        server_stats (Server_stats): The server stats.
+        client (commands.Bot): The discord bot.
+        text (str, optional): The image text. Defaults to None.
+        has_file (bool, optional): If a image text should be checked. Defaults to False.
+    """
     username = message.author.name
     is_slur, reason, word = await check_slurs_without_punishment(message,text,has_file)
     if is_slur:  
         guild = message.guild   
         strikes = server_stats.strikes(guild)
         channel_admin = discord.utils.get(guild.channels, name = admin_channel_name) #admin channel
-        await add_strike_code(message.author,server_stats, '1', await client.get_context(message))
+        ctx = await client.get_context(message) if isinstance(message,discord.Message) else message
+        await add_strike_code(message.author,server_stats, '1',ctx ,reason)
         try:
             await message.author.send(f'You got one strike for {reason}: {word}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.id])} strikes.')
             await channel_admin.send(f'User {message.author.name} got one strike for {reason}: {word}.\nUser {message.author.name} currently has {str(strikes[message.author.id])} strikes.')

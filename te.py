@@ -1,3 +1,5 @@
+if __name__ == '__main__':
+    print(input('What is your object to compare?') == '1011 1100 1000 0001 1100 1000')
 def flatten(dictionary: dict[str, str | dict]) -> dict[str, str]:
     key_string= ''
     while isinstance(dictionary, dict):
@@ -41,3 +43,4 @@ assert flatten(
 }
 
 print("The mission is done! Click 'Check Solution' to earn rewards!")
+

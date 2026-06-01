@@ -1,10 +1,16 @@
 from shared_vars import commands,Server_stats
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import random
-from message_events.message_management import delete_message
+from message_events.message_management_logic import delete_message
 from user_cmds.cmds_logic import can_do_daily
 class Fun_cmds(commands.Cog):
     def __init__(self, client:commands.Bot,server_stats:Server_stats):
+        """Initialize the class with the discord bot and the server stats. Additionally saves all Cogs under attributes.
+
+        Args:
+            client (commands.Bot): The discord Bot.
+            server_stats (Server_stats): The server stats.
+        """
         self.client = client
         self.server_stats = server_stats
     
@@ -25,7 +31,7 @@ class Fun_cmds(commands.Cog):
         amount_of_xp = 25
         user_stats.add_xp(ctx.author, amount_of_xp)
         user_stats.stats[ctx.author.id]['time_redeemed']  = datetime.now(timezone.utc)
-        self.server_stats.save_stats()
+        await self.server_stats.save_stats()
         await ctx.reply(f'You got {amount_of_xp}xp added as your daily xp.')
         
     @commands.command(aliases=['8ball'], help = 'This command responds to your questions with yes, no or maybe',brief='Responds to a question.')

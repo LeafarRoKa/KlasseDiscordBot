@@ -6,6 +6,8 @@ import nudenet
 import json
 from datetime import datetime, date, timedelta, time,timezone
 def open_save_files():
+    """This function checks if all required bot files exist. If a file doesn't exist it will create the file with an empty dict.
+    """
     global code_dict
     try:
         porpouse = 'code'
@@ -24,7 +26,6 @@ bot_channel_name = 'bot'
 welcome_channel_name = 'welcome'
 event_channel_name = 'events'
 goodbye_channel_name = 'goodbye'
-logs_temp = {}
 waiting_list = {}
 text_detection_ai = easyocr.Reader(['en']) # loads AI into that obj
 forbidden_words = []
@@ -56,20 +57,23 @@ allowed_types_in_bytes= [b'\x89PNG',          # PNG
                          b'GIF87a',           # GIF
                          b'GIF89a',           # GIF
                          b'BM']               # BMP
-ending_imgs = ['png','jpeg']
-with open(r'data/logs.json', 'r') as f:
-    save_full_logs = json.load(f)
-    full_logs = {}
-    for time_str, user_msgs_at_time in save_full_logs.items():
-        time_obj = datetime.fromisoformat(time_str)
-        if time_obj not in full_logs.keys():
-            full_logs[time_obj] = {}
-        for user, msgs in user_msgs_at_time.items():
-            user = int(user)
-            full_logs[time_obj][user] = msgs
-allowed_file_endings = ['txt']
-def save_data(porpouse:str, item):
-    with open(f'data/{porpouse}.json', 'w') as f:
+ENDING_IMGS = ['png','jpeg','jpg']
+ALLOWED_FILE_ENDINGS = ['txt']
+def save_data(purpose:str, item):
+    """Saves data to a JSON file. Will overwrite all the data in the existing file
+
+    Args:
+        purpose (str): 
+            Is the start of the file path. It only gets .json added for the full path.
+        item (Any):
+            The data to write to the file.
+            
+    """
+    with open(f'data/{purpose}.json', 'w') as f:
         json.dump(item,f)
-months = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08':  'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
+        
+MONTHS = {'01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun', '07': 'Jul', '08':  'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
 is_user_spamming = {}#false in some files
+days = ['monday','tuesday','wendsday','thursday','friday','saturday','sunday']
+RESPOND_TO_QUIZ_CMD_NAME = '!respond_to_quiz'
+REWARDS = ['xp']

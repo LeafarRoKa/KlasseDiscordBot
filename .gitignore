@@ -29,3 +29,6 @@ Thumbs.db
 
 #not needed py files (self)
 te.py
+te1.py
+quiz_system.quiz_terminal_concept.py
+self_learning.py

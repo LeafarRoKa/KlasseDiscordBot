@@ -2,9 +2,10 @@ import json
 from datetime import datetime
 import discord
 from typing import TypedDict
-from typing import Any as typing_any
+#from typing import Any as typing_any
 import os
 from discord.ext import commands
+from copy import deepcopy
 
 def migrate_or_create(file_type_name:str):
         """
@@ -23,7 +24,13 @@ def migrate_or_create(file_type_name:str):
                 json.dump({},f)
 
 class User_stats():
-    def __init__(self,server_stats,user_stats:dict =None):
+    def __init__(self,server_stats,user_stats:dict = None):
+        """Creates a User Stats instance. If data is given it will save that data in the attribute stats. It will default to an empty dict if None is given.
+
+        Args:
+            server_stats (Server_stats): The server stats where the user stats will be saved.
+            user_stats (dict, optional): The stats dict to be turned into the Class object. Defaults to None.
+        """
         self.server_stats = server_stats
         if user_stats is None:
             self.stats = {}
@@ -31,7 +38,6 @@ class User_stats():
             self.stats = user_stats
         self.stats = self.open_stats()
         self.server_stats : Server_stats
-        #self.complete(guild)
         
 
     def open_stats(self):
@@ -58,42 +64,42 @@ class User_stats():
         self = self.server_stats.stats[member.guild.id]['user_stats']
         roles_imgs = self.server_stats.stats[member.guild.id]['roles_imgs']
         roles_requirements = self.server_stats.stats[member.guild.id]['roles_requirements']
-        if len(roles_list) >= 9 and any(role.name.lower() == roles_list[9] for role in member.roles):
+        if len(roles_list) >= 9 and any(role.name.lower() == roles_list.get(9) for role in member.roles):
             rank = roles_list[9]
             next_rank = 'None' 
-            img = roles_imgs['owner']
+            img = roles_imgs['owner'] if not roles_imgs.get(rank.lower()) else roles_imgs[rank]
         elif any(role.name.lower().endswith('bot') for role in member.roles):
             rank = 'Bot'
             next_rank = 'None'
-            img = roles_imgs['klassebot']
-        elif len(roles_list) >= 8 and any(role.name.lower() == roles_list[8] for role in member.roles):
+            img = roles_imgs['klassebot'] if not roles_imgs.get(rank.lower()) else roles_imgs[rank]
+        elif len(roles_list) >= 8 and any(role.name.lower() == roles_list.get(8) for role in member.roles):
             rank = roles_list[8]
             next_rank = f'Normally there is no greater rank beyond {roles_list[8]}.'
-            img = roles_imgs['admin']
-        elif len(roles_list) >= 7 and any(role.name.lower() == roles_list[7] for role in member.roles):
+            img = roles_imgs['admin'] if not roles_imgs.get(rank.lower()) else roles_imgs[rank]
+        elif len(roles_list) >= 7 and any(role.name.lower() == roles_list.get(7) for role in member.roles):
             rank = roles_list[7]
             next_rank = roles_list[8]
-            img = roles_imgs['mod']
-        elif len(roles_list) >= 6 and any(role.name.lower() == roles_list[6] for role in member.roles):
+            img = roles_imgs['mod'] if not roles_imgs.get(rank.lower()) else roles_imgs[rank]
+        elif len(roles_list) >= 6 and any(role.name.lower() == roles_list.get(6) for role in member.roles):
             rank = roles_list[6]
             next_rank = roles_list[7]
-            img = roles_imgs['mini mod']
-        elif len(roles_list) >= 5 and any(role.name.lower() == roles_list[5] for role in member.roles):
+            img = roles_imgs['mini mod'] if not roles_imgs.get(rank.lower()) else roles_imgs[rank]
+        elif len(roles_list) >= 5 and any(role.name.lower() == roles_list.get(5) for role in member.roles):
             rank = roles_list[5]
             next_rank =  roles_list[6]
-            img = roles_imgs['dev']
-        elif len(roles_list) >= 4 and any(role.name.lower() == roles_list[4] for role in member.roles):
+            img = roles_imgs['dev'] if not roles_imgs.get(rank.lower()) else roles_imgs[rank]
+        elif len(roles_list) >= 4 and any(role.name.lower() == roles_list.get(4) for role in member.roles):
             rank = roles_list[4]
             next_rank = roles_list[5]
-            img = roles_imgs['trial dev']
-        elif len(roles_list) >= 3 and any(role.name.lower() == roles_list[3] for role in member.roles):
+            img = roles_imgs['trial dev'] if not roles_imgs.get(rank.lower()) else roles_imgs[rank]
+        elif len(roles_list) >= 3 and any(role.name.lower() == roles_list.get(3) for role in member.roles):
             rank = roles_list[3]
             next_rank = roles_list[4]
-            img = roles_imgs['trial member']
-        elif len(roles_list) >= 2 and any(role.name.lower() == roles_list[2] for role in member.roles):
+            img = roles_imgs['trial member'] if not roles_imgs.get(rank.lower()) else roles_imgs[rank]
+        elif len(roles_list) >= 2 and any(role.name.lower() == roles_list.get(2) for role in member.roles):
             rank = roles_list[2]
             next_rank = roles_list[3]
-            img = roles_imgs['member']
+            img = roles_imgs['member'] if not roles_imgs.get(rank.lower()) else roles_imgs[rank]
         elif any(role.name.lower() == 'spammer' for role in member.roles):
             rank = 'spammer'
             next_rank = 'Currently not avalible.'
@@ -101,8 +107,8 @@ class User_stats():
         else:
             rank = roles_list[1]
             next_rank = roles_list[2]
-            img = roles_imgs['beginner']
-        
+            img = roles_imgs['beginner'] if not roles_imgs.get(rank) else roles_imgs[rank]
+
         self.stats[member.id]['rank'] = rank
         self.stats[member.id]['next_rank'] = next_rank
         self.stats[member.id]['img'] = img
@@ -143,7 +149,6 @@ class User_stats():
         
                     
     def add_msg(self, member:discord.Member,amount:int=1):
-        
         self.server_stats.stats[member.guild.id]['user_stats'].stats[member.id]['xp'] += 5*amount
         self.server_stats.stats[member.guild.id]['user_stats'].stats[member.id]['message_count'] += amount
     
@@ -151,32 +156,64 @@ class User_stats():
         self.server_stats.stats[member.guild.id]['user_stats'].stats[member.id]['xp'] += amount
 
 
-##class Guild_dict_structure(TypedDict):
-#    user_stats: User_stats
-#    roles_imgs: list[str]
-#    roles_requirements: dict[int,dict]
-#
+class Guild_dict_structure(TypedDict):
+    user_stats: User_stats
+    roles_imgs: list[str]
+    roles_requirements: dict[int,dict]
+
 class Server_stats():
-    stats: dict[int,dict[str, dict]]
-    def __init__(self,client):
+    stats: dict[int,dict[str, Guild_dict_structure]]
+    def __init__(self,client:commands.Bot | dict):
+        """Creates a Server stats instance. For testing purposes the client can be replaced with a dictionary. In that case the data won't be pulled from the save file.
+
+        Args:
+            client (commands.Bot | dict): The discord bot or dict.
+        """
         self.client = client if isinstance(client,commands.Bot) else None #client should always be a discord Bot unless if its for testing porpouses 
         self.stats = {} if isinstance(client, commands.Bot) else client
-        self.open_stats()
         if type(client) != commands.Bot:
             return
         self.client: commands.Bot
+
+    async def setup(self):
         self.is_dict_complete()
-        self.save_stats()
-        
-    def open_stats(self):
+        await self.open_stats()
+        self.is_dict_complete()
+        await self.save_stats()
+
+    async def open_stats(self,crashed=False):
         try:
             porpouse = 'server_stats'
-            with open('data/server_stats.json','r') as f:
+            path = 'data/server_stats.json'
+            if not crashed:
+                try:
+                    with open(path) as f:
+                        data = f.read()
+                        new_path = f'{path[:-5]}.txt'
+                        try:
+                            with open(new_path,'w') as file:
+                                file.write(data)
+                        except FileNotFoundError:
+                            with open(new_path,'x') as file:
+                                file.write(data)
+                except FileNotFoundError:
+                    pass
+            with open(path,'r') as f:
                 stats = json.load(f) if self.stats.get('0') is None else self.stats
         except (FileNotFoundError, json.decoder.JSONDecodeError):
             migrate_or_create(porpouse)
-            self.open_stats()
+            await self.open_stats(True)
         for guild_id in stats.keys():
+            guild = self.client.get_guild(int(guild_id)) if isinstance(self.client, commands.bot.Bot) else None
+            if not guild and isinstance(self.client, commands.bot.Bot):
+                try:
+                    guild = await self.client.fetch_guild(int(guild_id))
+                except:
+                    continue
+            TEMPLATE = {'set_up':False,'user_stats':{},'roles_requirements': {"1": {"xp": 0, "strikes": 99},"2": {"xp": 500, "strikes": 99}, "3": {"xp": 2500, "strikes": 50}, "4": {"xp": 5000, "strikes": 20}, "5": {"xp": 12500, "strikes": 10}},'roles_imgs':  {'owner': r'images/owner.png', 'mod':'','mini mod': '','klassebot': r'images/bot.png', 'admin': r"images/admin.png", 'dev': r"images/dev.png", 'trial dev': r"images/trial_dev.png", 'elite member': r'images/lite_member.png', 'member': r"images/member.png", 'beginner': r'images/beginner.png', 'spammer':''},'server_roles': {},'strikes':{},'allowed_channels':{},'suggestions_closed': True,'to_watch':{},'winner_data':{},'winner': None,'winner_watch':None, 'badges_imgs':{},'quizzes':{},'full_logs':{},'temp_logs':{}}
+            for k in TEMPLATE:
+                if k not in stats[guild_id].keys():
+                    stats[guild_id][k] = TEMPLATE[k]
             stats[guild_id]['user_stats'] = self.stats.get('user_stats') and self.stats.get('user_stats') or User_stats(server_stats=self,user_stats=stats[guild_id]['user_stats']) 
             stats[guild_id]['user_stats'].stats =  stats[guild_id]['user_stats'].open_stats() 
             stats[guild_id]['server_roles'] = {int(k):v for k,v in stats[guild_id]['server_roles'].items()} 
@@ -186,25 +223,32 @@ class Server_stats():
             stats[guild_id]['to_watch'] = {watch_name:{k:datetime.fromisoformat(v) if k == 'watch_date' else int(v) for k,v in dict(watch_data).items()} for watch_name,watch_data in stats[guild_id]['to_watch'].items()}
             stats[guild_id]['strikes'] = {int(k): int(v) for k,v in stats[guild_id]['strikes'].items()}
             stats[guild_id]['winner_data'] =  {watch_name:{k:datetime.fromisoformat(v) if k == 'watch_date' else int(v) for k,v in dict(watch_data).items()} for watch_name,watch_data in stats[guild_id]['winner_data'].items()}
-            if stats.get(guild_id).get('roles_imgs') is None:
-                stats[guild_id]['roles_imgs'] = {'owner': r'images/owner.png', 'mod':'','mini mod': '','klassebot': r'images/bot.png', 'admin': r"images/admin.png", 'dev': r"images/dev.png", 'trial dev': r"images/trial_dev.png", 'elite member': r'images/lite_member.png', 'member': r"images/member.png", 'beginner': r'images/beginner.png', 'spammer':''}
-            else:
-                stats[guild_id]['roles_imgs'] = stats.get(guild_id).get('roles_imgs')
+            stats[guild_id]['quizzes'] = {k : {k2:guild.get_channel(int(v2)) if v2 and k2 in ['question_channel'] else guild.get_role(int(v2)) if k2 in ['role_pinged'] and v2 else v2 for k2,v2 in v.items()} for k,v in stats[guild_id]['quizzes'].items()} if guild else {k : {k2:int(v2) if v2 and k2 in ['question_channel'] else int(v2) if k2 in ['role_pinged'] and v2 else v2 for k2,v2 in v.items()} for k,v in stats[guild_id]['quizzes'].items()}
+            stats[guild_id]['roles_imgs'] = {'owner': r'images/owner.png', 'mod':'','mini mod': '','klassebot': r'images/bot.png', 'admin': r"images/admin.png", 'dev': r"images/dev.png",
+                                              'trial dev': r"images/trial_dev.png", 'elite member': r'images/lite_member.png', 'member': r"images/member.png", 'beginner': r'images/beginner.png', 
+                                              'spammer':''} if stats.get(guild_id).get('roles_imgs') is None else stats.get(guild_id).get('roles_imgs')
             self.stats = {int(k):v for k,v in stats.items()}
+            stats[guild_id]['temp_logs'] = {int(k) : {datetime.fromisoformat(k2) if k2 != 'guild_id' else k2 :v2 if k2 != 'guild_id' else int(v2)  for k2,v2 in v.items()}  for k,v in stats[guild_id]['temp_logs'].items()}
+            stats[guild_id]['full_logs'] = {int(k) : {datetime.fromisoformat(k2):v2 for k2,v2 in v.items()} for k,v in stats[guild_id]['full_logs'].items()}
         
 
-    def save_stats(self):
+    async def save_stats(self):
         if self.stats.get(0) or self.stats.get('0'):
                 return
         to_save = {}
         for guild_id in self.stats.keys():
+            if not any(guild_id ==guild.id for guild in self.client.guilds):
+                continue
             to_save[guild_id] = {k:v for k,v in self.stats[guild_id].items() if k != 'user_stats'}
             to_save[guild_id]['user_stats'] = self.stats[guild_id]['user_stats'].save_stats()
             to_save[guild_id]['to_watch'] = {k:{k2:str(v2) for k2,v2 in v.items()} for k,v in to_save[guild_id]['to_watch'].items()}
             to_save[guild_id]['winner_data'] = {k:{k2:str(v2) for k2,v2 in v.items()} for k,v in to_save[guild_id]['winner_data'].items()}
+            to_save[guild_id]['quizzes'] = {k : {k2:v2.id if k2 in ['role_pinged','question_channel'] and v2 else v2 for k2,v2 in v.items()} for k,v in to_save[guild_id]['quizzes'].items()}
+            to_save[guild_id]['temp_logs'] = {k : {str(k2):v2 for k2,v2 in v.items()} if k != 'guild_id' else v for k,v in to_save[guild_id]['temp_logs'].items() }
+            to_save[guild_id]['full_logs'] = {k : {str(k2):v2 for k2,v2 in v.items()} for k,v in to_save[guild_id]['full_logs'].items()}
         with open('data/server_stats.json','w') as f:
             json.dump(to_save,f)
-        self.open_stats()
+        await self.open_stats()
 
     def strikes(self,guild:discord.Guild):
         return self.stats[guild.id]['strikes']
@@ -224,13 +268,26 @@ class Server_stats():
         
 
     def is_dict_complete(self):
+        TEMPLATE = {'set_up':False,'user_stats':User_stats(self),'roles_requirements': {"1": {"xp": 0, "strikes": 99},"2": {"xp": 500, "strikes": 99}, "3": {"xp": 2500, "strikes": 50}, "4": {"xp": 5000, "strikes": 20}, "5": {"xp": 12500, "strikes": 10}},'roles_imgs':  {'owner': r'images/owner.png', 'mod':'','mini mod': '','klassebot': r'images/bot.png', 'admin': r"images/admin.png", 'dev': r"images/dev.png", 'trial dev': r"images/trial_dev.png", 'elite member': r'images/lite_member.png', 'member': r"images/member.png", 'beginner': r'images/beginner.png', 'spammer':''},'server_roles': {},'strikes':{},'allowed_channels':{},'suggestions_closed': True,'to_watch':{},'winner_data':{},'winner': None,'winner_watch':None, 'badges_imgs':{},'quizzes':{},'full_logs':{},'temp_logs':{}}
+        #stats_copy =  deepcopy(self.stats)
+        if not self.client:
+            return
         for guild in self.client.guilds:
             if guild.id not in self.stats.keys():
-                self.stats[guild.id] = {'set_up':False,'user_stats':User_stats(self),'roles_requirements': {"1": {"xp": 0, "strikes": 99},"2": {"xp": 500, "strikes": 99}, "3": {"xp": 2500, "strikes": 50}, "4": {"xp": 5000, "strikes": 20}, "5": {"xp": 12500, "strikes": 10}},'roles_imgs':  {'owner': r'images/owner.png', 'mod':'','mini mod': '','klassebot': r'images/bot.png', 'admin': r"images/admin.png", 'dev': r"images/dev.png", 'trial dev': r"images/trial_dev.png", 'elite member': r'images/lite_member.png', 'member': r"images/member.png", 'beginner': r'images/beginner.png', 'spammer':''},'server_roles': {},'strikes':{},'allowed_channels':{},'suggestions_closed': True,'to_watch':{},'winner_data':{},'winner': None,'winner_watch':None, 'badges_imgs':{}}
+                self.stats[guild.id] = TEMPLATE
             for member in guild.members:
                 if self.stats[guild.id]['strikes'].get(member.id) is None:
                     self.stats[guild.id]['strikes'][member.id] = 0
+                if self.stats[guild.id]['set_up']:
+                    if not self.stats[guild.id]['user_stats'].stats.get(member.id):
+                        self.stats[guild.id]['user_stats'].add_member(member)
+            #for k in TEMPLATE:
+            #    if k not in self.stats[guild.id].keys():
+            #        self.stats[guild.id][k] = TEMPLATE[k]
+
+        #return stats_copy == self.stats
 
 
     def user_stats(self,guild:discord.Guild):
         return self.stats[guild.id]['user_stats']
+    

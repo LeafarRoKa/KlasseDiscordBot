@@ -1,6 +1,6 @@
 from shared_vars import discord, User_stats, Server_stats,admin_channel_name, commands
 from datetime import timedelta
-from message_events.message_management import delete_message
+from message_events.message_management_logic import delete_message
 async def promote(old_role: discord.Role, new_role: discord.Role, member: discord.Member, server_stats:Server_stats):
         guild = member.guild
         user_stats = server_stats.user_stats(guild)
@@ -9,7 +9,7 @@ async def promote(old_role: discord.Role, new_role: discord.Role, member: discor
         await give_role_logic(member, new_role)
         if new_role.name in server_stats.stats[guild.id]['server_roles'].values():
             user_stats.set_xp(member, 0)
-        server_stats.save_stats()
+        await server_stats.save_stats()
         user_stats.update_rank(member,server_stats.stats[guild.id]['server_roles'])
         channel = discord.utils.get(guild.channels,name= admin_channel_name)
         try:
@@ -82,3 +82,12 @@ async def timeout_logic(ctx:commands.Context, member: discord.Member, duration: 
         await delete_message(ctx.message,time=5)
     except OverflowError:
         pass
+
+async def get_member(guild:discord.Guild, user_id:int):
+    member = guild.get_member(user_id)
+    if not member:
+        try:
+            member = await guild.fetch_member(user_id)
+        except (discord.Forbidden,discord.NotFound):
+             return 
+    return member   

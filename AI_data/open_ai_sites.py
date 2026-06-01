@@ -48,6 +48,11 @@ wiki_urls = [
 with open('ai_text.json','r') as f:
     training_data = json.load(f)
 async def data_scraping(session:aiohttp.ClientSession=None):
+    """It opens the links in the wiki_urls list and it saves the scraped data.
+
+    Args:
+        session (aiohttp.ClientSession, optional): The HTTP Session it use. Creates a browser session if None is given.
+    """
     global training_data
     urls = wiki_urls
     if session is None:
@@ -71,6 +76,8 @@ async def data_scraping(session:aiohttp.ClientSession=None):
                 json.dump(training_data,f)
 
 async def all_pages():
+    """Returns all the links of every API page of every page in the list base_urls. This function is unfinished.
+    """
     session = aiohttp.ClientSession() # browser session
     for url in base_urls:
         api_page = url + 'api.php'

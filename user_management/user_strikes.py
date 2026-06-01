@@ -3,22 +3,22 @@ from shared_vars import discord, Server_stats,admin_channel_name,waiting_list
 from datetime import timedelta, datetime, timezone
 from user_management.user_management_logic import promote, timeout_logic
 
-async def add_strike_code(member: discord.Member,server_stats:Server_stats, amount:int = '1', ctx = None):
+async def add_strike_code(member: discord.Member,server_stats:Server_stats, amount:int = '1', ctx = None, reason= 'No reason provided.'):
     if type(amount) != int:
         amount = int(amount)
     server_stats.stats[member.guild.id]['strikes'][member.id] += amount
-    server_stats.save_stats()
-    await strikes_punishments(member,server_stats, ctx)
+    await server_stats.save_stats()
+    await strikes_punishments(member,server_stats, ctx, reason)
 
 async def set_strikes_code(ctx, member: discord.Member,server_stats:Server_stats, amount ='1'):
     if type(amount) != int:
         amount = int(amount)
     server_stats.stats[member.guild.id]['strikes'][member.id] = amount
-    await strikes_punishments(member,server_stats)
+    await strikes_punishments(member,server_stats,ctx)
     await ctx.send(f'The strikes of {member.display_name} were successfully set to {amount}')
 
 
-async def strikes_punishments(member: discord.Member, server_stats:Server_stats, ctx  = None):
+async def strikes_punishments(member: discord.Member, server_stats:Server_stats, ctx  = None, reason= 'No reason provided.'):
     global waiting_list
     guild = member.guild
     user_stats = server_stats.user_stats(guild)
@@ -27,7 +27,7 @@ async def strikes_punishments(member: discord.Member, server_stats:Server_stats,
         name = 'Owner'
     else:
         name= user_stats.stats[member.id]['rank'] 
-    old_role = discord.utils.get(guild.roles, name =name )#it is called that way to save it as an old role if the user recieves spammer
+    old_role = discord.utils.get(guild.roles, name = name)#it is called that way to save it as an old role if the user recieves spammer
     spammer = discord.utils.get(guild.roles, name= 'spammer')
     strikes = server_stats.strikes(guild)
     if old_role.name in list(server_stats.stats[guild.id]['server_roles'].values())[6:]:
@@ -38,17 +38,17 @@ async def strikes_punishments(member: discord.Member, server_stats:Server_stats,
         return
     if strikes[member.id] == 1:
         time_obj = '1m'
-        await timeout_logic(ctx, member, time_obj, reason= 'The user has one strike')
+        await timeout_logic(ctx, member, time_obj, reason= reason)
         await channel.send(f'{member.name} was timedout for {time_obj} for having {strikes[member.id]} strikes.')
     elif strikes[member.id] == 2:
         time_obj = '5m'
-        msg = await timeout_logic(ctx, member, time_obj, reason= 'The user has two strikes')
+        msg = await timeout_logic(ctx, member, time_obj, reason=reason)
         print(msg)
         await channel.send(f'{member.name} was timedout for {time_obj} for having {strikes[member.id]} strikes.')
     elif strikes[member.id] >= 3 and strikes[member.id] <= 19:
         user_stats.stats[member.id]['role_before_spam'] = old_role.name
         await promote(old_role, spammer, member,server_stats)
-        server_stats.save_stats()
+        await server_stats.save_stats()
         ban_time = timedelta(seconds = 100)
         if strikes[member.id] == 4:
             ban_time = timedelta(minutes= 5)
@@ -93,11 +93,11 @@ async def strikes_punishments(member: discord.Member, server_stats:Server_stats,
     elif strikes[member.id] >= 20 and strikes[member.id] <= 40:
         user_stats.stats[member.id]['role_before_spam'] = old_role.name
         await promote(old_role, spammer, member,server_stats)
-        server_stats.save_stats
-        await timeout_logic(member, '1d', reason=f'The user has {strikes[member.id]} strikes.')
+        await server_stats.save_stats()
+        await timeout_logic(member, '1d', reason=reason)
 
     elif strikes[member.id] > 40:
         await member.kick(reason='You were kicked because you currently had 40 strikes on the server.\nPlease contact the server admins if you think this treatment is unfair.')
     
-    server_stats.save_stats()
+    await server_stats.save_stats()
 

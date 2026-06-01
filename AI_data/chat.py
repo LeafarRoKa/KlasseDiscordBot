@@ -5,7 +5,10 @@ import csv
 paths =[
     r"C:\Users\Rafae\Downloads\amazon_rt_yelp.csv"
  ]
+
 def open_and_save():
+    """Opens a TXT file, reads all the content, and overwrites the file with the cleaned-up text.
+    """
     entire_text = ''
     for path in paths:
         with open(path,'r',encoding='utf-8') as f:#r+ allows bot reading and writing
@@ -45,11 +48,18 @@ def open_and_save():
             entire_text += f'\n{text}'
     bulk_train(text)
 def bulk_train(text:str):
+    """Takes the given text and trains the model on that. If interupted the save data may become corrupted.
+
+    Args:
+        text (str): The text to train the model on.
+    """
     confirmation = input('Are you 100% sure that you want to perform this bulk training?')
     if confirmation == 'YesForSureYes100%YesYesYes':
         model.training(text)
 
 def chat_ai():
+    """A loop that lets the user interact with the model through terminal input the model. The loop exits when a user inputs "exit".
+    """
     while True:
         question = input('What is your question to the ai (exit to exit)?')
         if question.lower() == 'exit':

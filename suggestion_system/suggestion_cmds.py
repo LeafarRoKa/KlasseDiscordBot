@@ -1,10 +1,16 @@
 from shared_vars import commands, Server_stats, discord, event_title, event_description,next_sunday
 from suggestion_system.suggestion_logic import is_member_hosting, remove_suggestion_logic
-from message_events.message_management import response_waiting,delete_message
+from message_events.message_management_logic import response_waiting,delete_message
 from message_events.message_events import check_slurs_without_punishment
 from datetime import timezone, timedelta
 class Suggestion_cmds(commands.Cog):
     def __init__(self, client:commands.Bot,server_stats:Server_stats):
+        """Initialize the class with the discord bot and the server stats.
+
+        Args:
+            client (commands.Bot): The discord Bot.
+            server_stats (Server_stats): The server stats.
+        """
         self.client = client
         self.server_stats = server_stats
     @commands.command(help='This events removes your suggestion from the event suggestions.',brief='Removes your suggestion.')
@@ -62,7 +68,7 @@ class Suggestion_cmds(commands.Cog):
             self.server_stats.stats[guild.id]['to_watch'][watch_name] = {'watch_date': next_sunday,
                                     'id': ctx.author.id}
             await ctx.reply(f'You are now applied to host **{watch_name}** next sunday.')
-            self.server_stats.save_stats()
+            await self.server_stats.save_stats()
             all_events = await guild.fetch_scheduled_events()
             for event in all_events:
                 if event.name.lower() == event_title.lower():

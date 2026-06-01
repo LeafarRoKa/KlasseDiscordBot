@@ -1,26 +1,45 @@
-from shared_vars import commands,Server_stats,discord, waiting_confirmations,change_confirmations, logs_temp, text_detection_ai, headers, nudity_classification, admin_channel_name, allowed_types_in_bytes, ending_imgs, command_prefix, full_logs
+from shared_vars import commands,Server_stats,discord, waiting_confirmations,change_confirmations, text_detection_ai, headers, nudity_classification, admin_channel_name, allowed_types_in_bytes, ENDING_IMGS, command_prefix, User_stats
 import random
 from message_events.message_events_logic import sort_by_newest, check_spam, check_slurs_without_punishment,rank_check,check_slurs
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
 import asyncio
 from user_management.user_strikes import add_strike_code
-from message_events.message_management import delete_message
+from message_events.message_management_logic import delete_message, log
 import os
 import aiohttp
 import re
 import urllib
+
 d_face_reacts = ['skillissue', 'brofailed', 'rip', 'imagine']
 class Message_events(commands.Cog):
     def __init__(self,client:commands.Bot,server_stats:Server_stats):
+        """Initialize the class with the Discord bot and the server stats. 
+
+        Args:
+            client (commands.Bot): The Discord Bot.
+            server_stats (Server_stats): The server stats.
+        """
         self.client = client
         self.server_stats = server_stats
 
     @commands.Cog.listener()
     async def on_message(self,message:discord.Message):
+        """
+Called when a message gets sent in guild with this bot.
+            Does the following:
+                    - Has a chance depending on the content of the message to react with a GIF or emoji.
+                    - Logs the message.
+                    - Checks for spam.
+                    - Checks for slurs and nudity in images attached and the message content.
+                    - Adds the corresponding xp to the message author.
+                    - Checks if the user can be promoted.
+                    - Responds if the message was sent in an allowed channel.
+Args:
+            message (discord.Message): The sent message.
+        """
         global waiting_confirmations, change_confirmations
         guild = message.guild
-        global full_logs
         sideeye_reactions = ['trust me', 'trust me bro', '100%']
         skillissue_reactions = ['why doesnt','why doesn\'t','it doesn\'t work', 'it doesnt work','how do i', 'error','broken', 'i lost', 'i messed up']
         iq_reactions = ['actually', 'you can just','instead do']
@@ -150,12 +169,14 @@ class Message_events(commands.Cog):
         elif not message.guild:#print('Message was sent in a dm.')
             return
         user_stats = self.server_stats.user_stats(guild)
+        user_stats : User_stats
 
         #prevents the bot from responding to himself
         if message.author.id == self.client.user.id:
             if self.server_stats.stats[guild.id]['set_up'] is True:
                 user_stats.add_msg(message.author)
             return        
+        
         if self.server_stats.stats[guild.id].get('set_up') is not None and self.server_stats.stats[guild.id].get('set_up') is False:
             if message.content.lower() != '!setup':
                 #checks if the user was doing a confirmation
@@ -164,15 +185,16 @@ class Message_events(commands.Cog):
                         waiting_confirmations.remove(message.author.id)
                         change_confirmations.remove(message.author.id)
                     return
-                await message.channel.send('You have to set up the bot with !setup to be able to use the bot.')
-            else:
-                await self.client.process_commands(message)
+                msg = await message.channel.send('You have to set up the bot with !setup to be able to use the bot.',reference=message)
+                await delete_message([msg,message],time=5)
             return
-        
-        
+
+              
         #logs the sent message
-        self.log(logs_temp,message,with_guild=True)
-        self.log(full_logs, message)
+        temp_logs = self.server_stats.stats[message.guild.id]['temp_logs']
+        full_logs = self.server_stats.stats[message.guild.id]['full_logs']
+        self.server_stats.stats[message.guild.id]['temp_logs'] = log(temp_logs,message,with_guild=True)
+        self.server_stats.stats[message.guild.id]['full_logs'] = log(full_logs, message)
         full_logs = sort_by_newest(full_logs)
         save_full_logs = {}
         for time_obj, user_msgs_at_time in full_logs.items():
@@ -180,11 +202,10 @@ class Message_events(commands.Cog):
             if time_obj not in save_full_logs.keys():
                 save_full_logs[time_obj] = {}
             for user, msgs in user_msgs_at_time.items():
-                user = str(user)
                 save_full_logs[time_obj][user] = msgs
-        self.server_stats.save_stats()
+        await self.server_stats.save_stats()
         if message.channel != 'spam':
-            await check_spam(self.client,self.server_stats) #checks if the messages are spam
+            await check_spam(self.client, message.guild,self.server_stats) #checks if the messages are spam
 
         username = str(message.author).split('#')[0]
         try:
@@ -199,6 +220,11 @@ class Message_events(commands.Cog):
         strikes  = self.server_stats.strikes(guild)
         #returns a score between 0 and 1 about how save a img object is
         async def check_image_safety(attachment_in_bytes:bytes):
+            """Checks if the given image contains either nudity or slurs. Message gets deleted if either is detected.
+
+            Args:
+                attachment_in_bytes (bytes): The sent image in bytes.
+            """
             risk = 0
             with Image.open(BytesIO(attachment_in_bytes)) as img:
                 img = img.convert('L')
@@ -232,7 +258,7 @@ class Message_events(commands.Cog):
                     await channel.send(f'Flagged image from user <@{message.author.id}>.\nIts risk was rated {risk}/9.\nLink to message {message.jump_url}.',allowed_mentions=discord.AllowedMentions(users=True))
                 elif risk > 5:
                     channel_admin = discord.utils.get(guild.channels,name= admin_channel_name)
-                    await add_strike_code(message.author, self.server_stats, '1', await self.client.get_context(message))
+                    await add_strike_code(message.author, self.server_stats, '1', await self.client.get_context(message),reason)
                     reason = 'sending an explicit image'
                     try:
                         await message.author.send(f'You got one strike for {reason}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.',allowed_mentions=discord.AllowedMentions(users=False))
@@ -302,7 +328,7 @@ class Message_events(commands.Cog):
 
             if message.attachments:
                 for attachment in message.attachments:
-                    if any(attachment.filename.lower().endswith(ending) for ending in ending_imgs):
+                    if any(attachment.filename.lower().endswith(ending) for ending in ENDING_IMGS):
                         attachment_in_bytes = await attachment.read()
                         await check_image_safety(attachment_in_bytes)
                                 
@@ -331,6 +357,7 @@ class Message_events(commands.Cog):
                 waiting_confirmations.remove(message.author.id)
                 change_confirmations.remove(message.author.id)
             return
+        user_stats.add_msg(message.author)
         
         #makes the text readable
         for mention in message.mentions:
@@ -367,30 +394,51 @@ class Message_events(commands.Cog):
                             'lions territory? Denzel.']
                 await message.channel.send(random.choice(jokes))
             elif user_message.lower().strip('?') == 'what can you do':
-                await message.channel.send(f'I can respond to basic questions and for commands I can:\n'
-                                        'play ping pong (!Ping).\nlist the amount of strikes you have (!my_strikes).\ngive you a list of all the roles in this server (!list_roles).\nMaybe upcoming features.\n(Please note that all the following features are not garanteed to be introduced.):\n' \
-                                        'A internet search possibility if asked to the bot' \
-                                        'Some new roles.')
+                await message.channel.send(f'I can respond to basic questions and for commands you can find them all using !help')
             elif user_message.lower().strip('?\'') == 'whats new':
-                await message.channel.send('I have a new !gen function that can "generate" python code. I can now respond with gifs and react with emojis.')
+                await message.channel.send('I have a new !gen function that can "generate" python code. I also now have an entire suggestion system.')
             elif user_message.lower().strip('?\'') == 'what are some upcoming features':
                 await message.channel.send('Probably some commands that allow you to search things in the internet trough the bot, a !stats command and a new command that lists all the questions that you can ask me (the bot).\nI recieve so many features rn because my creator is really locked in during vacation.')
                 pass
             elif user_message.lower().strip('?’,.\'.') == 'who created you':
-                await message.channel.send(f'I was created by the clases greatest Python programmer (even better than Telmo) called Rafael.')
+                #await message.channel.send(f'I was created by the clases greatest Python programmer (even better than Telmo) called Rafael.')
+                await message.channel.send(f'I was created by only one Python programmer.')
             elif user_message.lower().strip('?\'') == 'why didnt my command work':
                 await message.channel.send(f'If your command wasn\'t answered by me it probably was because you either wrote it in another channel that is not the bot channel, \nyou wrote the false command or you just dont have enough permsions to use that command.') 
 
+            elif user_message.lower().strip('?’,.\'.') == 'can you please ping everyone':
+                await message.channel.send(f'@everyone <@{message.author.id}> wanted me to ping you all.',allowed_mentions=discord.AllowedMentions(everyone=False))
             else:
                 await message.channel.send(random.choice(['Unnötige Frage.', 'Give it up twin🥀✌️', "Give it up bro.","Be serious bro.","That’s not it.","Bro please.","Come on bro.","That’s wild.","Bro thought this was smart.","That’s crazy. In a bad way.","Not happening.","Message rejected.","Try again.","Try harder.","Recalculate.","Re-evaluate your choices.","You are lost.","Completely lost.","Orientation missing.","Confidence was there. Logic wasn’t.","That ain’t it.","That’s tough bro.","Bro thought hes tough.","Delete that.","Let’s pretend that didn’t happen.","I’m ignoring this.","No comment.","I refuse.",'Bold move.',"Incorrect move.","Critical thinking left.", "Brain patch missing.","That changed nothing.","Energy wasted.","Time wasted.","Bro typed that confidently but confidence ≠ correctness.","Let’s not.","Just no.","You need a brain reset.","Minimal brain usage.","I’m distancing myself.","Bro why.","Explain yourself.","Just don’t.","Well that’s embarrassing.","This is not it.","I’m logging off mentally.","That’s below expectations. Way below.","Try again tomorrow.","That hurt to read.","Completely unnecessary.","Respectfully no. Disrespectfully also no.","Absolutely not.","At least you tried.", "No shot.","You can’t mean that.","That’s delusional (lightly).","You said that confidently too.","You lost me instantly.","That’s illegal logic.","You typed that willingly.","That’s not defendable.","You overcooked.","You committed too hard.","I’m disappointed in that one.","Even your mom would’ve double-checked that.","Even your mom expected better.","Your mom saw that and logged off.","Your mom would’ve taken five more seconds to write that correctly.","Even your mom knew that wasn’t it.","Even your mom wouldn’t defend that.","Even your mom would’ve googled it first.","Even your mom would’ve edited that.","Even your mom paused before that one.","Even your mom would’ve worded that better.","Even your mom would’ve structured that better."]))
 
 
-    def log(self,logs:dict,message:discord.Message,with_guild = False):
-        if message.author.id not in logs.keys():
-            if with_guild:                     
-                logs[message.author.id] = {'guild_id':message.guild.id}
-            else:
-                logs[message.author.id] = {}  
-        if message.created_at not in logs[message.author.id].keys():
-            logs[message.author.id][message.created_at]  = []
-        logs[message.author.id][message.created_at].append(message.content)
+class Message_checks(commands.Cog):
+    def __init__(self, client: commands.Bot, server_stats:Server_stats):
+        """Initialize the class with the Discord bot and the server stats. During the initialization adds a global check to the Discord bot.
+
+        Args:
+            client (commands.Bot): The Discord Bot.
+            server_stats (Server_stats): The server stats.
+        """
+        self.client = client
+        self.server_stats = server_stats
+        self.client.add_check(self.is_in_confirmation)
+    
+    def is_in_confirmation(self,ctx:commands.Context):
+        if ctx.guild.id == 0:
+            return True
+        
+        if not self.server_stats.stats[ctx.guild.id]['set_up'] and ctx.message.content.strip() != '!setup':
+            ctx.set_up = False
+            return False
+        
+        if ctx.author.id == self.client.user.id or  ctx.author.id in waiting_confirmations and ctx.author.id not in change_confirmations:
+            return False
+        
+        allowed_channels = self.server_stats.stats[ctx.guild.id]['allowed_channels']        
+        #checks if the message was sent in another channel and if thats true it checks if the bot was mentioned.
+        if allowed_channels:
+            if ctx.channel.id not in allowed_channels.values(): #checks if the channel wich the message was sent in is allowed.
+                if ctx.channel.name.lower() != 'admin':
+                    return False
+        return True

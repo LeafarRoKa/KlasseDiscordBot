@@ -1,8 +1,14 @@
 from shared_vars import discord, commands, Server_stats
 from user_management.user_management_logic import give_role_logic, remove_role_logic, timeout_logic
-from message_events.message_management import delete_message
+from message_events.message_management_logic import delete_message
 class User_management(commands.Cog):
     def __init__(self, client:commands.Bot,server_stats:Server_stats):
+        """Initialize the class with the discord bot and the server stats. Additionally saves all Cogs under attributes.
+
+        Args:
+            client (commands.Bot): The discord Bot.
+            server_stats (Server_stats): The server stats.
+        """
         self.client = client
         self.server_stats = server_stats
 
@@ -58,7 +64,7 @@ class User_management(commands.Cog):
         global server_stats
         guild = ctx.guild
         self.server_stats.stats[guild.id]['user_stats'].stats[member.id]['xp'] = amount
-        self.server_stats.save_stats()
+        await self.server_stats.save_stats()
         await ctx.reply(f'successfully set <@{member.id}>\'s xp to {amount}.')
     
 

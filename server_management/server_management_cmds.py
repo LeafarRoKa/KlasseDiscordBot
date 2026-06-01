@@ -1,19 +1,27 @@
-from shared_vars import commands, Server_stats, discord, admin_channel_name, bot_channel_name, event_channel_name,goodbye_channel_name,welcome_channel_name,permissions_per_role
-from message_events.message_management import delete_message,response_waiting,response_waiting_text
+from shared_vars import commands, Server_stats, discord, admin_channel_name, bot_channel_name, event_channel_name,goodbye_channel_name,welcome_channel_name,permissions_per_role, ENDING_IMGS
+from message_events.message_management_logic import delete_message,response_waiting,response_waiting_text,send_and_response_waiting_until_response
 import asyncio
 from server_management.cmds_logic import other_rbg, hex_color_to_rgb
-class sever_management(commands.Cog):
+import os
+class Server_management(commands.Cog):
     def __init__(self, client:commands.Bot,server_stats:Server_stats):
+        """Initialize the class with the Discord bot and the server stats. During the initialization adds a global check to the Discord bot.
+
+        Args:
+            client (commands.Bot): The Discord Bot.
+            server_stats (Server_stats): The server stats.
+        """
         self.client = client
         self.server_stats = server_stats
+
     @commands.command(help='Lists all server roles.')
-    async def list_roles(ctx):
+    async def list_roles(self,ctx:commands.Context):
         roles = ctx.guild.roles
         roles_list = []
         for role in list(roles):
             if role.name != '@everyone':
                 roles_list.append(role.name)
-        await ctx.send(f'Avalible roles:\n'+'\n'.join(f'- {role}' for role in roles_list))
+        await ctx.reply(f'Avalible roles:\n'+'\n'.join(f'- {role}' for role in roles_list))
 
     @commands.command(help='This cmd clears all messages in the given channel(channelID).',brief='Clears the given channel.')
     @commands.has_permissions(manage_messages = True)
@@ -32,7 +40,7 @@ class sever_management(commands.Cog):
             reply = await ctx.reply(reply)
             await delete_message([ctx, reply], time=5)
         await ctx.send(f'Are you sure that you want to delete all messages of the channel {channel.name}. Type y to confirm and n to exit.')
-        response = response_waiting(ctx,self.client)
+        response = await response_waiting(ctx,self.client)
         if response.content == 'y':
             try:
                 await channel.purge(limit = None, bulk = True)
@@ -54,6 +62,7 @@ class sever_management(commands.Cog):
             return
         else:    
             await ctx.send('Invalid response.')
+
     @commands.command(help='This cmd adds the given channel(channelID) from the channels where the bot can directly talk.',brief='Adds channel to the allowed channels.')
     @commands.has_permissions(manage_channels=True)
     async def add_allowed_channels(self, ctx, channel_id: int):
@@ -64,7 +73,7 @@ class sever_management(commands.Cog):
                     await ctx.send(f'Channel is already an allowed channel.')
                     return
                 allowed_channels[channel.name] = channel_id
-                self.server_stats.save_stats()
+                await self.server_stats.save_stats()
                 await ctx.send(f'Successfully added channel {channel.name} to the allowed channels.')
                 return
         await ctx.send('Channel was not found. Please make sure that the entered channeld ID is an existing channel.')
@@ -76,7 +85,7 @@ class sever_management(commands.Cog):
         for name, id in allowed_channels.items():
             if channel_id == id:
                 allowed_channels.pop(name)
-                self.server_stats.save_stats()
+                await self.server_stats.save_stats()
                 await ctx.send(f'Successfully removed channel {name} from the allowed channels.')
                 return 
         await ctx.send('Channel id is not yet registred to the allowed channels.')
@@ -91,20 +100,20 @@ class sever_management(commands.Cog):
         event_channel = discord.utils.get(guild.channels,name=event_channel_name)
         welcome_channel = discord.utils.get(guild.channels, name = welcome_channel_name)
         goodbye_channel = discord.utils.get(guild.channels, name = goodbye_channel_name)
-        nescessary_channels = {admin_channel:admin_channel_name,bot_channel:bot_channel_name,event_channel:event_channel_name,welcome_channel:welcome_channel_name,goodbye_channel:goodbye_channel_name}
+        nescessary_channels = {admin_channel_name : admin_channel,bot_channel_name : bot_channel,event_channel_name: event_channel,welcome_channel_name: welcome_channel,goodbye_channel_name: goodbye_channel}
         self.server_stats.is_dict_complete()
-        if any(channel is None for channel in nescessary_channels.keys()):
+        if any(channel is None for channel in nescessary_channels.values()):
             await ctx.send('Would you like to proceed with creating channels (y/n)?\n(if a needed channel doesn\'t already exist it will ask you if it is allowed to specificly create that channel.)')
-            response = await response_waiting(ctx,self.client,time=120)
+            response = await response_waiting(ctx,self.client,time=300)
             if response is None:
                     return
             if response.content.lower() not in ['y', 'yes']:
                 await ctx.send('successfully stopped the setup process.')
                 return
-        for channel, name in nescessary_channels.items():
+        for name, channel in nescessary_channels.items():
             if channel is None:
                 await ctx.send(f'A text channel called {name} is needed for the bot to work.\nBut the channel doesn\'t exist in this server. Would you like the bot to create that channel(y/n)?')
-                response = await response_waiting(ctx,self.client, time= 120)
+                response = await response_waiting(ctx,self.client, time= 300)
                 if response is None:
                     return
                 if response.content.lower() not in ['y', 'yes']:
@@ -118,18 +127,19 @@ class sever_management(commands.Cog):
         async def role_name_defentition():
             roles_name = {}
             for i in range(1,10):
-                await ctx.send(f'What would you like to name the {i}. xp role (1.lowest-5.highest).')
-                response = await response_waiting(ctx,self.client)
+                response = await send_and_response_waiting_until_response(ctx,self.client, prompt=f'What would you like to name the {i}. xp role (1.lowest-5.highest).(exit to exit)', time=300,break_on=['exit'])
                 if response is None:
                     return
-                if response.content.lower() in ['none']:
+                if response.lower() in ['none']:
                     continue
-                roles_name[i] = response.content
+                roles_name[i] = response
                 if len(set(roles_name.values())) != len(roles_name.values()):
                     await ctx.send('You can\'t have two roles with the same name.\nYou will have to repeat the role naming process\n')
                     return await role_name_defentition()
             return roles_name
         roles_name = await role_name_defentition()
+        if not roles_name:
+            return
         await ctx.send('Please make sure that the bot\'s role is above all of the other user roles that you want the bot to manage.\nThe most optimal position would be right below the owner role.\n\nIf you completed that enter ok to proceed.')
         response = await response_waiting_text(ctx,self.client,time=600)
         if response not in ['ok','y','yes']:
@@ -139,7 +149,7 @@ class sever_management(commands.Cog):
             role = discord.utils.get(guild.roles, name= role_name)
             if role is None:
                 await ctx.send(f'There is no role named {role_name}.\nWould you like me to create that role?')
-                response = await response_waiting(ctx,self.client,120)
+                response = await response_waiting(ctx,self.client,300)
                 if response is None:
                     return
                 if response.content.lower() in ['y','yes']:
@@ -159,7 +169,7 @@ class sever_management(commands.Cog):
         self.server_stats.stats[guild.id]['server_roles'] = roles_name#TODO DO NOT CREATE OWNER ROLE JUST SAVE IT, CREATE PERMISSION FOR THE OTHER 3 or so roles. 
         self.server_stats.stats[guild.id]['set_up'] = True
         self.server_stats.stats[guild.id]['suggestions_closed'] = False
-        self.server_stats.save_stats         
+        await self.server_stats.save_stats()      
         self.server_stats.user_stats(guild).complete(guild)
         #TODO come up with ideas on how to personalize this bot the most possible
         #completed the following
@@ -172,10 +182,34 @@ class sever_management(commands.Cog):
         #completed check if a welcome channel, a event channel, a goodbye channel exist if not ask to create one
 
     @setup.error
-    async def setup_error(ctx:commands.Context,error:commands.CommandError):
-        if isinstance(error, discord.ext.commands.errors.CommandInvokeError):
+    async def setup_error(self, ctx:commands.Context,error:commands.CommandError):
+        if isinstance(error, commands.errors.CommandInvokeError):
             await ctx.send('I do not have permission to create new roles that are a higher level than me.\nPlease make sure that the bot\'s role is placed above every role that the bot should be managing.\nThe most optimal position would be the one below the owner role.')
             error.handled = True
             return
         else:
             raise error
+    
+    @commands.command(help = 'This cmd allows you to change the images used in the stats images for registred roles.',brief='Change role images for stats card.',aliases=['change_role_imgs'])
+    @commands.has_permissions(manage_guild=True)
+    async def change_role_image(self, ctx:commands.Context, name:str | None = None):
+        if not name:
+            await ctx.reply(f'You did not provide a name. The registred roles are: {[role_name for role_name in self.server_stats.stats[ctx.guild.id]['server_roles'].values()]}')
+            return
+        if all(name.lower() != role_name for role_name in self.server_stats.stats[ctx.guild.id]['server_roles'].values()):
+            await ctx.reply('The given role name is not registred in the bot for this server.\nPlease try again.')
+            return
+        if len(ctx.message.attachments) != 1:
+            await ctx.reply('You did not provide a valid amount of attachements.\nPlease only provide one image attachment.')
+            return
+        if ctx.message.attachments[0].content_type.split('/')[1].lower() not in ENDING_IMGS:
+            await ctx.reply(f'The provided file type is not accepted by the bot for images.\nPlease try again with a file type that is in the following list {ENDING_IMGS}')
+            return
+        folder_name  = f'server_data_{ctx.guild.name}#{ctx.guild.id}'
+        folder_path = f'{folder_name}/images'
+        if not os.path.isdir(folder_path):#isdir means is directory mkdir means make directory a directory is to my knowledge a folder 
+            os.mkdir(folder_path)
+        image_path = f'{folder_path}/{name.lower()}.{ctx.message.attachments[0].content_type}'
+        os.write(image_path,ctx.message.attachments[0])
+        self.server_stats.stats[ctx.guild.id]['roles_imgs'][name.lower()] = image_path
+        await ctx.reply(f'Successfully updated the rank image for {name}.')
