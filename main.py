@@ -199,6 +199,7 @@ async def on_ready():
 commands_list = [cmd.name for cmd in client.commands]
 
 
+
 client.run(token)
 #TODO fix role images command
 #TODO assure that every guild id is valid on loading in server stats
