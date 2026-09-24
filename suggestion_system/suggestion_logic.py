@@ -1,6 +1,7 @@
-from shared_vars import discord, Server_stats, event_title
-
-def is_member_hosting(member:discord.Member,server_stats:Server_stats)->tuple[bool,str|None]:
+from shared_vars import discord, event_title
+from stats_system.server_stats import Server_stats
+import typing
+def is_member_hosting(member:discord.Member,server_stats:Server_stats)->tuple[typing.Literal[True],str] | tuple[typing.Literal[False],None]:
     for watch_name, watch_data in server_stats.stats[member.guild.id]['to_watch'].items():
         if watch_data.get('id') == member.id:
             return True, watch_name

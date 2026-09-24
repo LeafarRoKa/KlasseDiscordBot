@@ -3,8 +3,9 @@ sys.path.insert(0,r'C:\PythonPersonalProjects\DiscordBotProjects\KlasseBot')
 import asyncio
 from discord.ext import commands
 from colorama import Fore
-from shared_vars import Server_stats
+from stats_system.server_stats import Server_stats
 from unittest.mock import AsyncMock, Mock
+from stats_system.server_stats import Guild_dict_structure
 from quiz_system.quiz_logic import Quiz_logics,time_diff
 from event_listeners.basic_events import Basic_events
 from message_events.message_events import Message_events
@@ -16,12 +17,15 @@ from user_cmds.useful_cmds import Basic_cmds
 from suggestion_system.suggestion_cmds import Suggestion_cmds
 from datetime import datetime, timedelta
 from user_cmds.cmds_logic import can_do_daily
+from utils.typing_utils import Initialized_Bot
+import typing
+import discord
 class Basic_tests():
-    def __init__(self, client:commands.Bot,server_stats: Server_stats):
+    def __init__(self, client:Initialized_Bot,server_stats: Server_stats):
         """Initialize the class with the discord bot and the server stats. Additionally saves all Cogs under attributes.
 
         Args:
-            client (commands.Bot): The discord Bot.
+            client (Initialized_Bot): The discord Bot.
             server_stats (Server_stats): The server stats.
         """
         self.client = client
@@ -46,27 +50,76 @@ class Basic_tests():
         self.suggestion_cmds = Suggestion_cmds(client=client,server_stats=server_stats)
         
         self.fun_cmds.server_stats = self.server_stats
-        self.server_stats_data = Server_stats({"0": 
-                                  {"set_up": True, 
-                                   "roles_requirements": {"1": {"xp": 0, "strikes": 99}, "2": {"xp": 500, "strikes": 99}, "3": {"xp": 2500, "strikes": 50}, "4": {"xp": 5000, "strikes": 20}, "5": {"xp": 12500, "strikes": 10}},
-                                    "roles_imgs": {"owner": "images/owner.png", "mod": "", "mini mod": "", "klassebot": "images/bot.png", "admin": "images/admin.png", "dev": "images/dev.png", "trial dev": "images/trial_dev.png", "elite member": "images/lite_member.png", "member": "images/member.png", "beginner": "images/beginner.png", "spammer": ""}, 
-                                    "server_roles": {"1": "low", "2": "low_to_mid", "3": "mid", "4": "mid_to_high", "5": "high", "6": "mini_mod", "7": "mod", "8": "admin", "9": "owner"},
-                                     "strikes": {"0": 0},
-                                    "allowed_channels": {"admin": 1465322601198125066, "spam": 1483871754307895427, "bot": 1464956404837384233},
-                                      "to_host": {}, 
-                                     "suggestions_closed": False, "to_watch": {}, "winner_data": {}, 
-                                     "winner": None, "winner_watch": None, "badges_imgs": {}, "winner_user": None, 
-                                    "quizzes":{"quiz_for_testing": {"frequency": "1 days", "role_pinged": 1490328398780825700, 
-                                                             "question_channel": 1490316654293422190, "can_respond": True, 
-                                                             "question_response": {"why": ["bcs"]}, 
-                                                             "starting_day": {"save_var": 219, "user_day": "thursday", "user_hour": 12}, "rewards": "5000 xp"}},
-                                    "user_stats": 
-                                     {"0": {"message_count": 36, "join_date": "27.01.2026", "xp": 0, 
-                                            "badges": [], "rank": "high", "next_rank": "mini_mod", "img": "images/dev.png", 
-                                            "xp_for_next_rank": "through votes of users with the rank member or higher", "time_redeemed": "2026-03-18 17:13:43.218036+00:00", 
-                                            "role_before_spam": "low"}},"temp_logs":{},
-                                    "full_logs":{}}
-                                    })
+        stats : dict[int,Guild_dict_structure] = {0: {
+            'set_up': True, 
+            'roles_requirements': {
+                1: {'xp': 0, 'strikes': 99},
+                2: {'xp': 500, 'strikes': 99}, 3: {'xp': 2500, 'strikes': 50}, 4: {'xp': 5000, 'strikes': 20}, 
+                5: {'xp': 12500, 'strikes': 10}}, 
+            'roles_imgs': {
+                            'owner': 'images/owner.png', 
+                            'mod': '', 
+                            'mini mod': '', 
+                            'klassebot': 
+                            'images/bot.png', 
+                            'admin': 'images/admin.png', 
+                            'dev': 'images/dev.png', 
+                            'trial dev': 'images/trial_dev.png', 
+                            'elite member': 'images/lite_member.png', 
+                            'member': 'images/member.png', 
+                            'beginner': 'images/beginner.png', 
+                            'spammer': ''
+                            },
+            'server_roles': {
+                1: 'low', 
+                2: 'low_to_mid', 
+                3: 'mid', 
+                4: 'mid_to_high', 
+                5: 'high', 
+                6: 'mini_mod', 
+                7: 'mod', 
+                8: 'admin', 
+                9: 'owner'
+                }, 
+            'strikes': {0: 0}, 
+            'allowed_channels': [
+                1465322601198125066,
+                1483871754307895427, 
+                1464956404837384233
+            ], 
+            # 'to_host': {}, 
+            'suggestions_closed': False, 
+            'to_watch': {}, 
+            'badges_imgs': {}, 
+            'quizzes': {
+                'quiz_for_testing': {
+                    'frequency': '1 days', 
+                    'role_pinged': typing.cast(discord.Role,1490328398780825700),  
+                    'question_channel': typing.cast(discord.TextChannel,1490316654293422190), 
+                    'can_respond': True, 'question_response': {'why': ['bcs']}, 
+                    'starting_day': {
+                        'save_var': 219, 
+                        'user_day': 'thursday', 
+                        'user_hour': 12
+                        }, 
+                'rewards': '5000 xp'}
+                }, 
+            'user_stats': {0: {
+                                        "message_count": 36, 
+                                        "join_date": "27.01.2026", 
+                                        "xp": 0, 
+                                        "badges": [], 
+                                        "rank": "high", 
+                                        "next_rank": "mini_mod", 
+                                        "img": "images/dev.png", 
+                                        "xp_for_next_rank": "through votes of users with the rank member or higher", 
+                                        "time_redeemed": "2026-03-18 17:13:43.218036+00:00", 
+                                        "role_before_spam": "low"}
+                                        }, 
+            'temp_logs': {}, 
+            'full_logs': {}
+            }}#type:ignore[]
+        self.server_stats_data = Server_stats(stats)
         
     async def setup(self):
         await self.server_stats_data.setup()
@@ -88,7 +141,7 @@ class Basic_tests():
         cmd_name = 'test_ping'
         ctx = AsyncMock()
         ctx.guild.id = 0
-        await self.fun_cmds.ping(self.fun_cmds,ctx)
+        await self.fun_cmds.ping(self.fun_cmds,ctx)#type:ignore
         msg_responses = [msg.args[0] for msg in ctx.reply.call_args_list] + [msg.args[0] for msg in ctx.send.call_args_list]
         return [] if msg_responses == expected_results else [f'Cmd {cmd_name} did not return the extected result.\nRecieved result(s): {msg_responses}, the expected result were: {expected_results}\n']
     
@@ -111,7 +164,7 @@ class Basic_tests():
         ctx.guild.id = 0
         expected_results = ['yes','no','maybe']#first all using reply then all using send.
         cmd_name = 'test_question_responder'
-        await self.fun_cmds.question_responder(self.fun_cmds,ctx,'')
+        await self.fun_cmds.question_responder(self.fun_cmds,ctx,'')#type:ignore
         msg_responses = [msg.args[0] for msg in ctx.reply.call_args_list] + [msg.args[0] for msg in ctx.send.call_args_list]
         return [] if any(msg in expected_results for msg in msg_responses) else [f'Cmd {cmd_name} did not return the extected result.\nRecieved result was: {msg_responses}, the result was expected to be in: {expected_results}\n']
     
@@ -121,17 +174,17 @@ class Basic_tests():
         problems = [f'Cmd {cmd_name} did not return the extected result.\nRecieved result had at least one code_name out of help that was not associated with existing code.\n']
         ctx = AsyncMock()
         ctx.guild.id = 0
-        await self.basic_cmds.gen(self.basic_cmds,ctx,'eafeafafaofjiosjfioasghfweaopifg30223r1-eafoeaihfpioeahfpeasi')#invalid code name
+        await self.basic_cmds.gen(self.basic_cmds,ctx,'eafeafafaofjiosjfioasghfweaopifg30223r1-eafoeaihfpioeahfpeasi')#invalid code name    #type:ignore
         msg_responses = [msg.args[0] for msg in ctx.reply.call_args_list] + [msg.args[0] for msg in ctx.send.call_args_list]
         ctx = AsyncMock()
         ctx.guild.id = 0
-        await self.basic_cmds.gen(self.basic_cmds,ctx)
+        await self.basic_cmds.gen(self.basic_cmds,ctx)#type:ignore
         if [msg.args[0] for msg in ctx.reply.call_args_list] + [msg.args[0] for msg in ctx.send.call_args_list] != not_found_text:
             problems.append('The gen command did not return the not found text when recieving an obviously invalid code name.')
         ctx = AsyncMock()
         ctx.guild.id = 0
         for code_name in msg_responses:
-            await self.basic_cmds.gen(self.basic_cmds,ctx,code_name)
+            await self.basic_cmds.gen(self.basic_cmds,ctx,code_name)#type:ignore
         return [] if all(code != not_found_text for code in msg_responses) else problems
     
     async def test_gen_del_edit(self): 
@@ -168,11 +221,11 @@ class Basic_tests():
         msg_responses = []
         cmd_name = 'test_add_set_remove_xp'
         self.basic_cmds.server_stats = self.server_stats_data
-        await self.user_management.set_xp(self.basic_cmds,ctx,member,20)
+        await self.user_management.set_xp(self.basic_cmds,ctx,member,20)#type:ignore
         msg_responses.append(self.basic_cmds.server_stats.stats[0]['user_stats'].stats[0]['xp'])
-        await self.user_management.add_xp(self.basic_cmds,ctx,member,10)
+        await self.user_management.add_xp(self.basic_cmds,ctx,member,10)#type:ignore
         msg_responses.append(self.basic_cmds.server_stats.stats[0]['user_stats'].stats[0]['xp'])
-        await self.user_management.remove_xp(self.basic_cmds,ctx,member,30)
+        await self.user_management.remove_xp(self.basic_cmds,ctx,member,30)#type:ignore
         msg_responses.append(self.basic_cmds.server_stats.stats[0]['user_stats'].stats[0]['xp'])
         return [] if msg_responses == expected_results else [f'Cmd {cmd_name} did not return the extected result.\nRecieved result was: {msg_responses}, the result was expected to be in: {expected_results}']
     
@@ -218,4 +271,3 @@ class Basic_tests():
     #ctx.current_argument : None
     #ctx.interaction : None
     #... any number of arguments 
-    

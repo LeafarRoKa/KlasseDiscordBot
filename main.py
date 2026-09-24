@@ -6,14 +6,17 @@ import difflib
 import pytesseract
 import platform
 import asyncio
+import typing
 from unittest.mock import AsyncMock
 from shared_vars import  command_prefix#TODO ask why it fixes to move the import before the import of the class Fun or Basic cmds
 from message_events.message_management_logic import delete_message
 from event_listeners.event_logics import wait_until_event
 from quiz_system.quiz_logic import time_diff
-from stats_system.server_stats import Server_stats, User_stats
+from stats_system.server_stats import Server_stats
+from stats_system.user_stats import User_stats
 from event_listeners.basic_events import Basic_events
-from message_events.message_events import Message_events, Message_checks
+from message_events.message_events import Message_events
+from message_events.global_checks import Message_checks, Interaction_checks
 from message_events.message_management_cmds import Message_management
 from user_management.user_management_cmds import User_management
 from user_management.user_strikes_cmds import User_strikes
@@ -24,8 +27,8 @@ from tests.basic_test import Basic_tests
 from quiz_system.quiz_cmds import Quiz_system
 from quiz_system.quiz_logic import Quiz_logics
 from server_management.server_management_cmds import Server_management
+from utils.typing_utils import Initialized_Bot
 load_dotenv('data/.env') 
-
 if platform.system().lower() == 'windows':
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 elif platform.system().lower() == 'linux':
@@ -34,31 +37,23 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.guilds = True
-client = commands.Bot(command_prefix= command_prefix, intents = intents)
-token = os.getenv('TOKEN')
+client = commands.Bot(command_prefix=command_prefix, intents = intents)
+token = typing.cast(str,os.getenv('TOKEN'))
 user_stats = User_stats
 badges_imgs  = {}
 server_stats = Server_stats(client)
 
-
-                                                    ###################################################
-                                                    #TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO#
-                                                    #TODO      in file message_events_logic.py    TODO#
-                                                    #TODO      change function spam punishenment  TODO#
-                                                    #TODO       to server specific so it works    TODO#
-                                                    #TODO             server wide                 TODO#
-                                                    #TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO#
-                                                    ###################################################
-
 async def load_cogs():
     global basic_tests
+    global client
     """
     This function loads and adds all the extensions to the bot.
     """
+    client = typing.cast(Initialized_Bot,client)
     #Load events
     basic_tests = Basic_tests(client=client,server_stats=server_stats)
     await basic_tests.setup()
-
+    
     #basic tests    
     await client.add_cog(Basic_events(client=client,server_stats=server_stats))
 
@@ -86,7 +81,10 @@ async def load_cogs():
     #command checks
     Message_checks(client,server_stats)
 
-
+    #interaction checks
+    Interaction_checks(client,server_stats)
+    #it needs to be called and nothing needs to be done with that after it because it sets the checks in the init
+    
 def mismatch_message(user_command:str) -> str:
     """Compares a command name with all bot command names and returns the best matching one.
 
@@ -99,6 +97,8 @@ def mismatch_message(user_command:str) -> str:
     Returns:
         str: A string containing either the closest matching command name or a message stating that the command given is invalid.
     """
+    best_matching_command = ''#this is for the type checker bcs it doesnt get that the var best_matching_command 
+                                #is never called when unbound.
     best_match_percentage = -1
     for command in commands_list:
         match_perecentage = difflib.SequenceMatcher(a = user_command,b = command).ratio()
@@ -129,32 +129,35 @@ async def on_command_error(ctx:commands.Context, error:commands.CommandError) ->
     print(error)
     if getattr(error, 'handled', False):#if it doesn't have the attribute it means it wasn't handled and will return the here defined default false so it won't return if it doesn't have the attribute and if it does it only is correct if set to True
         return
-    if isinstance(error, commands.RoleNotFound):
-        await ctx.reply('The role does not exist.',delete_after=5)
-    elif isinstance(error, commands.MissingPermissions):
-        await ctx.reply('You lack the permissions to execute this command.',delete_after=5)
-    elif isinstance(error, commands.MemberNotFound):
-        await ctx.reply('Member not found. Please ensure you mentioned a valid Member.',delete_after=5)
-    elif isinstance(error, commands.BotMissingPermissions):
-        await ctx.reply('I lack the permissions to execute this command. Please contact the bot owner if this behaviour is unexpected.',delete_after=5)
-    elif isinstance(error, commands.BadArgument):
-        await ctx.reply('Member not found. Please ensure you mentioned a valid Member.',delete_after=5)
-    elif isinstance(error, discord.Forbidden):
-        await ctx.reply('I am not capable of performing actions for members above or at my same rank.',delete_after=5)
-    elif isinstance(error, commands.CommandNotFound):
-        await ctx.reply(mismatch_message(str(ctx.invoked_with)),delete_after=5)
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.reply('You are missing an argument.',delete_after=5)
-    elif isinstance(error, commands.errors.NotOwner):
-        await ctx.reply('Only the bot owner can use this cmd.', delete_after=5)
-    elif isinstance(error,commands.errors.CheckFailure):
-        if getattr(ctx,'set_up',True):
-            delete_user_msg = False
-            #await ctx.reply('You cannot use this command at the moment.' ,delete_after=5)
-    else:
-        await ctx.send('An error has occured while trying to execute this command.',delete_after=5)
+    match type(error):
+        case commands.RoleNotFound:
+            await ctx.reply('The role does not exist.',delete_after=5)
+        case commands.MissingPermissions:
+            await ctx.reply('You lack the permissions to execute this command.',delete_after=5)
+        case commands.MemberNotFound:
+            await ctx.reply('Member not found. Please ensure you mentioned a valid Member.',delete_after=5)
+        case commands.BotMissingPermissions:
+            await ctx.reply('I lack the permissions to execute this command. Please contact the bot owner if this behaviour is unexpected.',delete_after=5)
+        case commands.BadArgument:
+            await ctx.reply('Member not found. Please ensure you mentioned a valid Member.',delete_after=5)
+        case discord.Forbidden:
+            await ctx.reply('I am not capable of performing actions for members above or at my same rank.',delete_after=5)
+        case commands.CommandNotFound:
+            await ctx.reply(mismatch_message(str(ctx.invoked_with)),delete_after=5)
+        case commands.MissingRequiredArgument:
+            await ctx.reply('You are missing an argument.',delete_after=5)
+        case commands.errors.NotOwner:
+            await ctx.reply('Only the bot owner can use this cmd.', delete_after=5)
+        case commands.errors.CheckFailure:
+            if getattr(ctx,'set_up',True):
+                delete_user_msg = False
+                #await ctx.reply('You cannot use this command at the moment.' ,delete_after=5)
+        case _:
+            await ctx.send('An error has occured while trying to execute this command.',delete_after=5)
+
     if delete_user_msg: 
         await delete_message(ctx.message,time=5)
+
     
 @client.event
 async def on_ready():
@@ -167,7 +170,9 @@ async def on_ready():
         This function is only meant for discords api.
     """
     global server_stats
-    if getattr(client, 'set_up', False):
+    global client
+    client = typing.cast(Initialized_Bot,client)
+    if  getattr(client, 'set_up', False):
         return
     await server_stats.setup()
     #adds the other cogs to the main bot.
@@ -181,19 +186,25 @@ async def on_ready():
             ctx.guild.id = guild_id
             #TODO start the countdown for all quizzes again and uptade there to_wait seconds on restart
             quiz_logics = Quiz_logics.better_setup(ctx,server_stats,client,quiz_name)
-            server_stats.stats[guild_id]['quizzes'][quiz_name]['starting_day']['save_var'],_,_ = await time_diff(server_stats.stats[guild_id]['quizzes'][quiz_name]['starting_day']['user_day'],quiz_logics.response_waiter,ctx,server_stats.stats[guild_id]['quizzes'][quiz_name]['starting_day']['user_hour'])
+            result = await time_diff(server_stats.stats[guild_id]['quizzes'][quiz_name]['starting_day']['user_day'],quiz_logics.response_waiter,ctx,server_stats.stats[guild_id]['quizzes'][quiz_name]['starting_day']['user_hour'])
+            server_stats.stats[guild_id]['quizzes'][quiz_name]['starting_day']['save_var'] = result[0]
             quiz_logics = Quiz_logics.better_setup(ctx,server_stats,client,quiz_name)
             asyncio.create_task(quiz_logics.quiz_countdown())
             print(f'Started countdown for quiz {quiz_name}')
+    await client.tree.sync()
     print(f'Logged in as bot {client}')
-    client.set_up = True
+    client.set_up = True#type:ignore
     await wait_until_event(server_stats=server_stats,client=client)
+    
 commands_list = [cmd.name for cmd in client.commands]
 
 
 
 client.run(token)
 #TODO fix role images command
+#TODO assure that every guild id is valid on loading in server stats
+#completed add a coutdown for removing data on remove and then remove it only on that date instead of instantly removing it.          
+#completed 
 #completed testing system
 #completed set the default of the gen command parameter to help
 #completed LOAD ALL COGS and fix everything!
@@ -212,7 +223,7 @@ client.run(token)
 #completed create a setup command that sets up the entire envoirement that the bot needs and he only adds things if theyre not present
 #completed make every data dict server specific
 #completed fix logs displayed and file size
-#complted make the bot customizable per server
+#completed make the bot customizable per server
 #TODO add a report command and so every user can report someone else but they have
 # a cooldown on how much they can report and they can give a reason and after like x amount of people 
 #have reported that person then the admins will be noticed of that. The amount of people until the admins get noticed should depend of the amount of people in the server
@@ -233,3 +244,11 @@ client.run(token)
 #TODO make welcome goodbye and event channels also toggable
 #TODO test if the bot doesnt crash when not having the required permissions in a server
 #completed Learn complicated classes 
+###################################################
+#TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO#
+#TODO File message_management line 147        TODO#
+#TODO      set logs as a hybrid cmd           TODO#
+#TODO           (both slash and prefix)       TODO#
+#TODO       FILE: message_management_cmds     TODO#
+#TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO#
+###################################################

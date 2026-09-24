@@ -1,9 +1,15 @@
-from shared_vars import discord, days, commands, Server_stats, RESPOND_TO_QUIZ_CMD_NAME, REWARDS, User_stats
+from shared_vars import discord, DAYS, RESPOND_TO_QUIZ_CMD_NAME, REWARDS
+from stats_system.server_stats import Server_stats,commands
+from stats_system.user_stats import User_stats
 from datetime import datetime, timezone, timedelta
 from colorama import Fore
 import asyncio
 import random
-from message_events.message_management_logic import Response_waiting, red_print
+import typing
+from typing import overload
+from utils.typing_utils import GuildContext,Initialized_Bot
+from utils.utils import red_print
+from message_events.message_management_logic import Response_waiting
 
 def get_correct_input(user_input:str,*, prefixes:list = [], endings:list = []) -> tuple[bool|int,str|None]:
     correct_e = not endings
@@ -43,28 +49,64 @@ def give_rewards(user_stats:User_stats, name:str, amount:int, member: discord.Me
 
 
 async def is_role(id:int,guild:discord.Guild):
-            role = guild.get_role(id)
-            return False if not role else role
+    role = guild.get_role(id)
+    return False if not role else role
 
 async def is_channel(id:int,guild:discord.Guild):
     channel = guild.get_channel(id)
     return False if not channel else channel
 
-async def num_checking_input(prompt:str,response_waiter, ctx, accept_none:bool = False, accept_everything_or_everyone: bool = False,lower_bound:int='',upper_bound:int='', accept_point:bool = False, accept_exit:bool= False):
-            question_count = await response_waiter.send_and_response_waiting_text(prompt)
-            if accept_point:
-                question_count = question_count.strip('.')  
-            if accept_none and question_count.lower() == 'none' or accept_everything_or_everyone and question_count.lower() in ['everything','everyone'] or accept_exit and question_count.lower() in ['exit']:
-                return question_count
-            if not question_count.isdigit() or lower_bound and int(question_count) < lower_bound or upper_bound and int(question_count) > upper_bound:
-                await ctx.send(f'{question_count} is not a valid input.')
-                return await num_checking_input(prompt, response_waiter, ctx,accept_none, accept_everything_or_everyone,lower_bound,upper_bound)
-            return int(question_count)
+@overload
+async def num_checking_input(
+    prompt:str,
+    response_waiter:Response_waiting, 
+    ctx:GuildContext,
+    *,
+    accept_none:typing.Literal[False]=False, 
+    accept_everything_or_everyone:typing.Literal[False]=False,
+    lower_bound:int|None=None,upper_bound:int|None=None, 
+    accept_point:bool= False, 
+    accept_exit:typing.Literal[False]= False
+    ) -> int: ... 
 
-async def time_diff(day:str|int, response_waiter, ctx, hour = None):
+
+@overload
+async def num_checking_input(
+    prompt:str,
+    response_waiter:Response_waiting, 
+    ctx:GuildContext, 
+    *,
+    accept_none:bool, 
+    accept_everything_or_everyone: bool=False,
+    lower_bound:int|None=None,
+    upper_bound:int|None=None, 
+    accept_point:bool = False, 
+    accept_exit:bool = False
+    ) -> typing.Literal['none','everything','everyone','exit']|int: ... 
+
+@overload
+async def num_checking_input(
+            prompt:str,response_waiter:Response_waiting, ctx:GuildContext, 
+            *,accept_none:typing.Literal[False] = False, accept_everything_or_everyone:typing.Literal[False]= False,
+            lower_bound:int|None=None,upper_bound:int|None=None, accept_point:bool=False, accept_exit:typing.Literal[True]
+            ) -> typing.Literal['exit']|int: ... 
+
+async def num_checking_input(prompt:str,response_waiter:Response_waiting, ctx:GuildContext, *, accept_none:bool= False, accept_everything_or_everyone:bool = False,lower_bound:int|None=None,upper_bound:int|None=None, accept_point:bool = False, accept_exit:bool= False):
+    question_count = await response_waiter.send_and_response_waiting_text(prompt)
+    if accept_point:
+        question_count = question_count.strip('.')  
+    if accept_none and question_count.lower() == 'none' or accept_everything_or_everyone and question_count.lower() in ['everything','everyone'] or accept_exit and question_count.lower() in ['exit']:
+        return question_count
+    if not question_count.isdigit() or lower_bound and int(question_count) < lower_bound or upper_bound and int(question_count) > upper_bound:
+        await ctx.send(f'{question_count} is not a valid input.')
+        return typing.cast(str|int,await num_checking_input(prompt, response_waiter, ctx,accept_none, accept_everything_or_everyone,lower_bound,upper_bound,accept_point,accept_exit))
+    return int(question_count)
+
+async def time_diff(day:str, response_waiter:Response_waiting, ctx:GuildContext, hour:int|None = None) -> tuple[int,str,int]:
     user_day,day_in_text = await get_day(day)
     if not user_day:
-          return False ,day_in_text, None
+        raise ValueError('The given day was not a valid day')
+    day_in_text = typing.cast(str,day_in_text)
     user_hour = await num_checking_input('At what hour would you like the quiz to happen (utc)?',response_waiter,ctx,lower_bound= 0, upper_bound= 23) if not hour else hour
     today = datetime.now(timezone.utc)
     this_day = today.weekday() + 1
@@ -74,34 +116,35 @@ async def time_diff(day:str|int, response_waiter, ctx, hour = None):
     return int(diff), day_in_text, user_hour
 
 async def get_day(day:str|int):
-    day = day.strip()
-    day = days.index(day)+1 if day in days else int(day) if day.isdigit() and int(day) in range(1,7) else None
-    if not day:
-        return False, day
-    return day, days[day-1]
+    day = str(day).strip()
+    temp_day:int|None = DAYS.index(day)+1 if day in DAYS else int(day) if day.isdigit() and int(day) in range(1,7) else None
+    if temp_day is None:
+        return False, temp_day#it will never be zero bcs before it checks if its in range 1 to 7
+    return temp_day, DAYS[temp_day-1]
 
 class Quiz_logics():
-    def __init__(self, response_waiter: Response_waiting, ctx: commands.Context, server_stats: Server_stats, client: commands.Bot):
+    def __init__(self, response_waiter: Response_waiting, ctx: GuildContext, server_stats: Server_stats, client: Initialized_Bot):
         """Initialize the class with the Discord bot and the server stats. During the initialization adds a global check to the Discord bot.
 
         Args:
-            client (commands.Bot): The Discord Bot.
+            client (Initialized_Bot): The Discord Bot.
             server_stats (Server_stats): The server stats.
         """
         self.response_waiter = response_waiter
         self.ctx = ctx
         self.server_stats = server_stats
         self.client = client
-    
+        
     @classmethod
-    def better_setup(cls,ctx:commands.Context,server_stats: Server_stats,client:commands.Bot,quiz_name:str,time:int=30):
+    def better_setup(cls,ctx:GuildContext,server_stats: Server_stats,client:Initialized_Bot,quiz_name:str,time:int=30):
         response_waiter = Response_waiting(ctx,client,time)
         quiz_logics =  Quiz_logics(response_waiter,ctx,server_stats,client)
         change_functions = {1:{'func':quiz_logics.is_unique,'param':'What would you like to call this quiz?','save_var':''},2:{'func':quiz_logics.enter_frequency,'param':None,'save_var':''},3:{'func':quiz_logics.input_role,'param':'What role (enter the id) would you like to get pinged for this quiz? (None for no ping, Everyone to ping everyone.)','save_var':''},
                             4:{'func':quiz_logics.input_channel,'param':'In wich channel would you like the questions to be sent? (enter channelid)','save_var':''},5:{'func':response_waiter.send_and_response_waiting_bool,'param':'Would you like that people can respond to the question by using a bot cmd. (y,n)','save_var':''},
                             6:{'func':quiz_logics.question_asking,'param':None,'save_var':''},7:{'func':quiz_logics.ask_start_date,'param':'At what day of the week would you like the quiz to first start?','save_var':'','user_day':'','user_hour':''},8:{'func':quiz_logics.ask_reward,'param':'What reward would you like to give? Options are ' + ' '.join(option for option in REWARDS),'save_var':''}} 
         counter = iter(change_functions.keys())
-        for k in server_stats.stats[ctx.guild.id]['quizzes'][quiz_name]:
+        
+        for k in server_stats.stats[quiz_logics.ctx.guild.id]['quizzes'][quiz_name]:
             num = next(counter) +1 
             if k in ['question','response']:
                 break
@@ -161,7 +204,7 @@ class Quiz_logics():
             return await self.change_menu(name)
             
     async def save_quizzes(self):
-        self.server_stats.stats[self.ctx.guild.id]['quizzes'][self.change_functions[1]['save_var']] = {'frequency':self.change_functions[2]['save_var'],'role_pinged':self.change_functions[3]['save_var'],'question_channel':self.change_functions[4]['save_var'],'can_respond':self.change_functions[5]['save_var'],'question_response':self.change_functions[6]['save_var'],'starting_day':{'save_var': self.change_functions[7]['save_var'], 'user_day':self.change_functions[7]['user_day'], 'user_hour':self.change_functions[7]['user_hour']},'rewards':self.change_functions[8]['save_var']}
+        self.server_stats.stats[self.ctx.guild.id]['quizzes'][self.change_functions[1]['save_var']] = {'frequency':self.change_functions[2]['save_var'],'role_pinged':self.change_functions[3]['save_var'],'question_channel':self.change_functions[4]['save_var'],'can_respond':self.change_functions[5]['save_var'],'question_response':self.change_functions[6]['save_var'],'starting_day':{'save_var': self.change_functions[7]['save_var'], 'user_day':self.change_functions[7]['user_day'], 'user_hour':self.change_functions[7]['user_hour']},'rewards':self.change_functions[8]['save_var']}#type:ignore #FIXME
         if len(self.change_functions.keys()) != len(self.server_stats.stats[self.ctx.guild.id]['quizzes'][self.change_functions[1]['save_var']]) +1:
                 print(f'{Fore.RED}The saved dictionary is not complete!')
                 print(Fore.RESET)
@@ -171,7 +214,7 @@ class Quiz_logics():
         date = await self.response_waiter.send_and_response_waiting_text(prompt)
         time_difference, day_in_text, user_hour = await time_diff(date,self.response_waiter, self.ctx)
         if not type(time_difference) is int:
-            await self.ctx.send(f'The day: {day_in_text} is not a valid day.\n Please ensure that the day is mentioned in this list: {days}')
+            await self.ctx.send(f'The day: {day_in_text} is not a valid day.\n Please ensure that the day is mentioned in this list: {DAYS}')
             return await self.ask_start_date(prompt)
         return time_difference, day_in_text, user_hour
     
@@ -201,7 +244,7 @@ class Quiz_logics():
     
     async def input_role(self,prompt:str):
         response = await num_checking_input(prompt, self.response_waiter, self.ctx, accept_none=True,accept_everything_or_everyone=True)#completed find out how to mention everyone
-        if isinstance(response,str) and response.lower() in ['none','everything','everyone']:
+        if isinstance(response,str):
             return '@everyone' if response.lower() in ['everything','everyone'] else ''
         
         
@@ -227,8 +270,8 @@ class Quiz_logics():
         return quiz_name
 
     async def enter_frequency(self):
-        endings = ['hours','days','weeks']
-        often = await self.response_waiter.send_and_response_waiting_text('What would you like the quiz frequency to be?\n 1) every x hours 2) every x days 3) every x weeks  Example input: every 3 days')
+        endings = ['hours','DAYS','weeks']
+        often = await self.response_waiter.send_and_response_waiting_text('What would you like the quiz frequency to be?\n 1) every x hours 2) every x DAYS 3) every x weeks  Example input: every 3 DAYS')
         correct, ending = get_correct_input(often,prefixes=['every'],endings=endings)
         if not correct:
             await self.ctx.send(f'{often} is not a valid input.')
@@ -253,7 +296,7 @@ class Quiz_logics():
         quiz_name = self.change_functions[1]['save_var']
         quiz_data = self.server_stats.stats[self.ctx.guild.id]['quizzes'][quiz_name]
         if self.server_stats.stats[self.ctx.guild.id]['quizzes'].get('question') == question:
-            await self.quiz_execution(self,intervall)
+            await self.quiz_execution(intervall)
         self.server_stats.stats[self.ctx.guild.id]['quizzes'][quiz_name]['question'] = question
         self.server_stats.stats[self.ctx.guild.id]['quizzes'][quiz_name]['response'] = response
         to_send = f'Quiz **{quiz_name}**\n' 
@@ -268,13 +311,11 @@ class Quiz_logics():
         self.change_functions[7]['save_var'] = diff
         await self.quiz_countdown(intervall) 
 
-async def exitsts_with_questions(quiz_name:str, server_stats:Server_stats, ctx: commands.Context):
+def exitsts_with_questions(quiz_name:str, server_stats:Server_stats, ctx: GuildContext):
     if server_stats.stats[ctx.guild.id]['quizzes'].get(quiz_name) is None or server_stats.stats[ctx.guild.id]['quizzes'][quiz_name].get('question') is None:
-        return f'There is no currently open quiz for responses.\nThe event will happen next {server_stats.stats[ctx.guild.id]['quizzes'][7]['user_day']} at {server_stats.stats[ctx.guild.id]['quizzes'][7]['user_hour']}' if server_stats.stats[ctx.guild.id]['quizzes'].get(quiz_name) is not None else 'This quiz does not currently exist.'
+        return f'There is no currently open quiz for responses.\nThe event will happen next {server_stats.stats[ctx.guild.id]['quizzes'][quiz_name]['starting_day']['user_day']} at {server_stats.stats[ctx.guild.id]['quizzes'][quiz_name]['starting_day']['user_hour']}' if server_stats.stats[ctx.guild.id]['quizzes'].get(quiz_name) is not None else 'This quiz does not currently exist.'
     return ''
 
 def create_counter(num = 0):
      while True:
           yield num + 1
-
-

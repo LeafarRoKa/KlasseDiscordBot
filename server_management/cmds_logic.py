@@ -16,7 +16,7 @@ def full_rgb(r:int,g:int,b:int):
 
 def other_rbg(r:int,g:int,b:int):
     if not all(isinstance(char,int) for char in (r,g,b)):
-        return None
+        raise ValueError('All Parameters r,g and b have to be a integer.')
     #rgb is 24 bit each letter occupies max 8 bit and so to combine them we do like basecly a += so like we say r move 16 to the left then move g 8 to the left and then b stays at his place and 
     # so now we can say from the first positon (from left to right) to the 8th position we have the value r from the 8th to the 16th position we have the value of g and the rest is the value of b
     r = r << 16

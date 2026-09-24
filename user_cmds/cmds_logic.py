@@ -1,4 +1,6 @@
-from PIL import ImageFont, ImageDraw,Image
+from PIL import ImageFont,Image, ImageDraw
+import PIL.ImageDraw
+
 from io import BytesIO
 from datetime import timedelta,datetime, timezone
 def format_to_code(code: str, language:str):
@@ -10,7 +12,7 @@ def format_to_code(code: str, language:str):
         final_code += '```'
     return final_code
 
-def PIL_text_obj(draw: ImageDraw,cords, txt_to_dp = 'hello world',font_size = 20,bold_width = 0.5, text_color = (0,0,0),bold_fill = None, font = 'default'):
+def PIL_text_obj(draw: PIL.ImageDraw.ImageDraw,cords, txt_to_dp = 'hello world',font_size = 20,bold_width = 0.5, text_color = (0,0,0),bold_fill = None, font = 'default'):
         if bold_fill == None:
             bold_fill = text_color
         try:
@@ -29,10 +31,10 @@ def PIL_round_img_obj(img, size = None):
         img.save(jpeg_ram,'PNG')
         jpeg_ram.seek(0) #read cursor position
         if size != None:
-            img = img.resize(size, Image.LANCZOS)
+            img = img.resize(size, Image.Resampling.LANCZOS)
         width, height = img.size
         mask = Image.new('L', (width, height), 0) # L is for grayscale black and white 0 is the color black so everything that is black here covers everyting white shows
-        draw = ImageDraw.Draw(mask)#the object you can draw on
+        draw = PIL.ImageDraw.Draw(mask)#the object you can draw on
         draw.ellipse((0,0, width, height), fill= 255)#it draws an image from (0,0) (x) to (50,50) (y) 
         #puts the mask over the image so only the part inside the circle is visible
         rounded_img = Image.new('RGBA', (width, height), (0,0,0,0))#creates a new Image object with the image size of the full mask and of the image to round
@@ -40,7 +42,7 @@ def PIL_round_img_obj(img, size = None):
         return rounded_img, mask   
 
 
-def can_do_daily(time_redeemed:datetime = None):
+def can_do_daily(time_redeemed:datetime|None = None):
     if time_redeemed and not time_redeemed.tzinfo:
         time_redeemed = time_redeemed.replace(tzinfo = timezone.utc)
     if not time_redeemed or time_redeemed+timedelta(days=1) < datetime.now(timezone.utc):# if the diff to 1970 from the date redeemed + 1 day is greater than now then it means that that time + 24 hours are farther from 1970 meaning farther in the future

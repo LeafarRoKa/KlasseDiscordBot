@@ -1,32 +1,40 @@
-from shared_vars import commands,Server_stats,discord, waiting_confirmations,change_confirmations, text_detection_ai, headers, nudity_classification, admin_channel_name, allowed_types_in_bytes, ENDING_IMGS, command_prefix, User_stats
-import random
-from message_events.message_events_logic import sort_by_newest, check_spam, check_slurs_without_punishment,rank_check,check_slurs
-from io import BytesIO
-from PIL import Image, UnidentifiedImageError
-import asyncio
+from shared_vars import discord, waiting_confirmations,change_confirmations, headers, admin_channel_name, allowed_types_in_bytes, ENDING_IMGS, command_prefix
+from shared_vars import NOT_TO_USE,IQ_REACTIONS,SIDEEYE_REACTIONS,NPC_REACTIONS,ABSOLUTE_CINEMA_REACTIONS,SUS_REACTIONS,SKILLISSUE_REACTIONS,FIGHT_STARTING_REACTIONS,ONE_WORD_AKWARD,OVERDRAMATIC_REACTIONS,TEXT_DETECTION_CONFIDENCE_PERCENTAGE
+from stats_system.user_stats import User_stats
+from stats_system.server_stats import Server_stats,commands
+from message_events.message_events_logic import sort_by_newest, check_spam,rank_check,check_slurs,get_matching_return_message,check_unsafe_text,check_unsafe_image_content
 from user_management.user_strikes import add_strike_code
 from message_events.message_management_logic import delete_message, log
+from utils.typing_utils import enforce_guild,GuildMessage,Initialized_Bot
+from utils.utils import get_admin_channel
+from PIL import Image, UnidentifiedImageError
+from io import BytesIO
+import asyncio
 import os
 import aiohttp
 import re
-import urllib
+import urllib.error
+import random
+
 
 d_face_reacts = ['skillissue', 'brofailed', 'rip', 'imagine']
+
 class Message_events(commands.Cog):
-    def __init__(self,client:commands.Bot,server_stats:Server_stats):
+    def __init__(self,client:Initialized_Bot,server_stats:Server_stats):
         """Initialize the class with the Discord bot and the server stats. 
 
         Args:
-            client (commands.Bot): The Discord Bot.
+            client (Initialized_Bot): The Discord Bot.
             server_stats (Server_stats): The server stats.
         """
         self.client = client
         self.server_stats = server_stats
 
     @commands.Cog.listener()
-    async def on_message(self,message:discord.Message):
+    @commands.guild_only()
+    async def on_message(self,message:GuildMessage):
         """
-Called when a message gets sent in guild with this bot.
+        Called when a message gets sent in guild with this bot.
             Does the following:
                     - Has a chance depending on the content of the message to react with a GIF or emoji.
                     - Logs the message.
@@ -35,22 +43,20 @@ Called when a message gets sent in guild with this bot.
                     - Adds the corresponding xp to the message author.
                     - Checks if the user can be promoted.
                     - Responds if the message was sent in an allowed channel.
-Args:
+        Args:
             message (discord.Message): The sent message.
         """
         global waiting_confirmations, change_confirmations
         guild = message.guild
-        sideeye_reactions = ['trust me', 'trust me bro', '100%']
-        skillissue_reactions = ['why doesnt','why doesn\'t','it doesn\'t work', 'it doesnt work','how do i', 'error','broken', 'i lost', 'i messed up']
-        iq_reactions = ['actually', 'you can just','instead do']
-        sus_reactions = ['hypothetically','dont ask why','for a friend','i have a girlfriend', 'i have a gf', 'i have a bf', 'i have a boyfriend',"i dont lose","i don’t lose","i never lose","i never miss","too easy","light work","i calculated it","i calculated that","we’ll see","well see","im built different","i knew that","obviously","trust me","trust me bro","it’s proven","its proven","they don’t want you to know","they dont want you to know",]
-        fight_starting_reactions = ['actually', 'technically','well', 'no, because']
-        one_word_akward = ['ok', 'cool','hello','hi guys']
-        npc_reactions = ['good morning','im bored','how are you', 'whats up', 'what\'s up','anyone here']
-        overdramatic_reactions = ['“my code has one error','it’s over', 'its over', 'i’m done', 'im done','this is the end', 'i quit', 'i can’t anymore', 'i cant anymore', 'worst day ever', 'i’m finished', 'in finished', 'i am finished','why does this always happen to me','of course', 'just my luck','i’m cursed', 'im cursed', 'i am cursed',"that’s it","thats it","i’m done",'i’m leaving',"im leaving","goodbye forever","i’m done with this server","im done with this server","you won’t see me again","you wont see me again","this server fell off"]
-        absolute_cinema_reactions = ["you will regret this","remember this","this is your last warning","im done","watch what happens","you have no idea","mark my words","it begins","this changes everything","just wait","this isn’t over","this isnt over", "say that again","i’m built different","listen carefully",]
-        not_to_use = [ "die", "dead", "death", "suicide", "funeral", "grave","mother", "father", "mom", "dad", "grandmother", "grandfather","sister", "brother", "uncle", "aunt", "cousin", "pet","depression", "anxiety", "panic", "therapy", "suicidal","selfharm", "relapse","divorce", "abuse", "harassment", "assault","war", "accident", "hospital", "cancer"]
-        
+        if not guild:
+            return
+        user_stats = self.server_stats.user_stats(guild)
+        user_stats : User_stats
+        if message.author.id == self.client.user.id:
+            if self.server_stats.stats[guild.id]['set_up'] is True:
+                user_stats.add_msg(message.author)
+            return        
+        message = enforce_guild(message)
         gif_reactions =  {
 
         'skillissue' : ['https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExbmEwZWQycXFxY2Z2d200ZjQzYWhuZjdlcXdvY2c0NnRnb3ZqdWhvYyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/5pGd4XRmJY1Zt1Lv00/giphy.gif',
@@ -75,9 +81,9 @@ Args:
         
         
         dont_send= False
-        for word in not_to_use:
+        for word in NOT_TO_USE:
             if word in message.content.lower().replace('@', 'a').replace('1', 'i').replace('!', 'i').replace('ĝ','g').replace('é', 'e').replace('ř', 'r').strip('?=’,.\'.').replace('4','a').replace('1','i').replace('3', 'e').replace('5','s').replace('8', 'o'):
-                dont_send= True
+                dont_send = True
                 break
         
         if dont_send == False:
@@ -87,7 +93,7 @@ Args:
                     await message.add_reaction('\\<:DFace:1470918226446782763>')
                     return
         
-            for text in sideeye_reactions:
+            for text in SIDEEYE_REACTIONS:
                 if text in message.content.lower():
                     if random.randint(1,5) == 1:
                         if random.randint(1,3) == 2:
@@ -97,7 +103,7 @@ Args:
                         else:
                             await message.add_reaction('🤨')
                             break
-            for text in skillissue_reactions:
+            for text in SKILLISSUE_REACTIONS:
                 if text in message.content.lower():
                     if random.randint(1,5) == 1:
                         if random.randint(1,3) == 2:
@@ -106,7 +112,7 @@ Args:
                         await message.add_reaction(random.choice(['💀', '\\<:embarassing:1471526438057410763>','🤡']))
                         break   
 
-            for text in iq_reactions:
+            for text in IQ_REACTIONS:
                 if text in message.content.lower():
                     if random.randint(1,8) == 1:
                         if random.randint(1,5) == 4:
@@ -115,7 +121,7 @@ Args:
                         await message.add_reaction(random.choice(['🧠', '🤯', '🔥']))
                         break
             
-            for text in sus_reactions:
+            for text in SUS_REACTIONS:
                 if text in message.content.lower():
                     if random.randint(1,5) == 1:
                         if random.randint(1,3) == 2:
@@ -124,7 +130,7 @@ Args:
                         await message.add_reaction(random.choice(['🤨', '😳', '👀','\\<:pause:1471529450712731860>' ]))
                         break
 
-            for text in one_word_akward:
+            for text in ONE_WORD_AKWARD:
                 if text == message.content.lower():
                     if random.randint(1,5) == 1:
                         if random.randint(1,3) == 2:
@@ -133,7 +139,7 @@ Args:
                         await message.add_reaction(random.choice(['😐', '😶', '🦗','\\<:embarassing:1471526438057410763>']))
                         break
 
-            for text in npc_reactions:
+            for text in NPC_REACTIONS:
                 if text in message.content.lower():
                     if random.randint(1,5) == 1:
                         if random.randint(1,3) == 2:
@@ -142,9 +148,7 @@ Args:
                         await message.add_reaction(random.choice(['🤖','\\<:NPC:1471531032447684834>','\\<:bot:1471531101381066886>']))
                         break
 
-            
-
-            for text in fight_starting_reactions:
+            for text in FIGHT_STARTING_REACTIONS:
                 if text in message.content.lower():
                     if random.randint(1,5) == 1:
                         await message.channel.send(random.choice(gif_reactions['fight_starting']))
@@ -154,12 +158,12 @@ Args:
                 if random.randint(1,8) == 1:
                     await message.channel.send(random.choice(gif_reactions['chaos']))
             
-            for text in overdramatic_reactions:
+            for text in OVERDRAMATIC_REACTIONS:
                 if text in message.content.lower():
                     if random.randint(1,5) == 1:
                         await message.channel.send(random.choice(gif_reactions['overdramatic']))
             
-            for text in absolute_cinema_reactions:
+            for text in ABSOLUTE_CINEMA_REACTIONS:
                 if text in message.content.lower():
                     if random.randint(1,4) == 1:
                         await message.channel.send(random.choice(gif_reactions['absolute_cinema']))
@@ -168,15 +172,8 @@ Args:
             return
         elif not message.guild:#print('Message was sent in a dm.')
             return
-        user_stats = self.server_stats.user_stats(guild)
-        user_stats : User_stats
 
-        #prevents the bot from responding to himself
-        if message.author.id == self.client.user.id:
-            if self.server_stats.stats[guild.id]['set_up'] is True:
-                user_stats.add_msg(message.author)
-            return        
-        
+
         if self.server_stats.stats[guild.id].get('set_up') is not None and self.server_stats.stats[guild.id].get('set_up') is False:
             if message.content.lower() != '!setup':
                 #checks if the user was doing a confirmation
@@ -193,7 +190,7 @@ Args:
         #logs the sent message
         temp_logs = self.server_stats.stats[message.guild.id]['temp_logs']
         full_logs = self.server_stats.stats[message.guild.id]['full_logs']
-        self.server_stats.stats[message.guild.id]['temp_logs'] = log(temp_logs,message,with_guild=True)
+        self.server_stats.stats[message.guild.id]['temp_logs'] = log(temp_logs,message)
         self.server_stats.stats[message.guild.id]['full_logs'] = log(full_logs, message)
         full_logs = sort_by_newest(full_logs)
         save_full_logs = {}
@@ -205,8 +202,7 @@ Args:
                 save_full_logs[time_obj][user] = msgs
         await self.server_stats.save_stats()
         if message.channel != 'spam':
-            await check_spam(self.client, message.guild,self.server_stats) #checks if the messages are spam
-
+            await check_spam(self.client, message.guild,self.server_stats,message) #checks if the messages are spam
         username = str(message.author).split('#')[0]
         try:
             channel = message.channel.name
@@ -218,6 +214,7 @@ Args:
         guild_name = guild.name
         print(f'Message {user_message} was sent by {username} in the following channel: {channel} in the server {guild_name}')
         strikes  = self.server_stats.strikes(guild)
+
         #returns a score between 0 and 1 about how save a img object is
         async def check_image_safety(attachment_in_bytes:bytes):
             """Checks if the given image contains either nudity or slurs. Message gets deleted if either is detected.
@@ -228,47 +225,33 @@ Args:
             risk = 0
             with Image.open(BytesIO(attachment_in_bytes)) as img:
                 img = img.convert('L')
-                text_on_img = ''
                 filepath = r'images/sent_img.png'
                 img.save(filepath,format='PNG')
-                text_read = await asyncio.to_thread(text_detection_ai.readtext,filepath)
-                for text in text_read:
-                    text_on_img += f' {text[1]} '
-                    print(text[1])
-                print(f'text_on_img: {text_on_img}')
-                is_slur, _, _ = await check_slurs_without_punishment(text=text_on_img, has_file=True)
-                if is_slur:
-                    risk += 5
-                    print('Unsafe image content')
-                security_rating = await asyncio.to_thread(nudity_classification.detect ,filepath)
+                _, risk = await check_unsafe_text(filepath)
+                data = await check_unsafe_image_content(filepath,risk)
+                risk += data[1]
+                del data
                 os.remove(filepath)
-                if security_rating:
-                    security_rating = max(detection['score'] for detection in security_rating)
-                else:
-                    security_rating = 0
-                print(f'Security: {security_rating}')
-                if security_rating > 0.7:
-                    risk += 4
-                elif security_rating > 0.75:
-                    risk += 5 
-                elif security_rating > 0.8:
-                    risk += 6
                 if risk == 5 or risk == 4:
-                    channel = discord.utils.get(guild.channels,name= admin_channel_name)
+                    channel = discord.utils.get((channel for channel in guild.channels if isinstance(channel,discord.abc.Messageable)),name=admin_channel_name)
+                    if not channel:
+                        return 
                     await channel.send(f'Flagged image from user <@{message.author.id}>.\nIts risk was rated {risk}/9.\nLink to message {message.jump_url}.',allowed_mentions=discord.AllowedMentions(users=True))
                 elif risk > 5:
-                    channel_admin = discord.utils.get(guild.channels,name= admin_channel_name)
-                    await add_strike_code(message.author, self.server_stats, '1', await self.client.get_context(message),reason)
+                    channel_admin = get_admin_channel(guild)
                     reason = 'sending an explicit image'
+                    await add_strike_code(message.author, self.server_stats, message,1,reason)
+                    await delete_message(message)
+                    if not channel_admin:
+                        return
                     try:
-                        await message.author.send(f'You got one strike for {reason}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.name])} strikes.',allowed_mentions=discord.AllowedMentions(users=False))
-                        await channel_admin.send(f'User <@{message.author.id}> got one strike for {reason}.\nUser <@{message.author.id}> currently has {str(strikes[message.author.name])} strikes.',allowed_mentions=discord.AllowedMentions(users=False))
+                        await message.author.send(f'You got one strike for {reason}. Please be sure to follow the server rules or else you could be timed out or banned.\nYou currently have {str(strikes[message.author.id])} strikes.',allowed_mentions=discord.AllowedMentions(users=False))
+                        await channel_admin.send(f'User <@{message.author.id}> got one strike for {reason}.\nUser <@{message.author.id}> currently has {str(strikes[message.author.id])} strikes.',allowed_mentions=discord.AllowedMentions(users=False))
                     except discord.Forbidden:
-                        await message.send(f'User <@{message.author.id}> got one strike for {reason}.\nThis message was sent in admin because I cannot send DM to <@{message.author.id}> (DMs disabled or blocked).',allowed_mentions=discord.AllowedMentions(users=False))
+                        await message.channel.send(f'User <@{message.author.id}> got one strike for {reason}.\nThis message was sent in admin because I cannot send DM to <@{message.author.id}> (DMs disabled or blocked).',allowed_mentions=discord.AllowedMentions(users=False))
                     except Exception as e:
                         print(e)
-                        await channel_admin.send(f'An unexpected error occured while trying to send strike warning to <@{message.author.id}>.\nError: {e}',allowed_mentions=discord.AllowedMentions(users=False))
-                    await delete_message(message)
+                        await channel_admin.send(f'An unexpected error occured while trying to send strike warning to <@{message.author.id}>.\nError: {e}',allowed_mentions=discord.AllowedMentions(users=False))         
         
         #calls function to check for slurs and other not safe content 
         urls = re.findall(r'https?://\S+', message.content)
@@ -284,7 +267,7 @@ Args:
                             if size_in_bytes != None:
                                 size_in_bytes = int(size_in_bytes)
                                 if size_in_bytes <= 20_000_000:
-                                    async with session.get(url, timeout=10) as page:
+                                    async with session.get(url, timeout=aiohttp.ClientTimeout(10)) as page:
                                         url_image = await page.read()
                                         try:
                                             print(type(url_image))
@@ -310,7 +293,7 @@ Args:
                             async with session.get(url) as page:
                                 bytes_downloaded = 0
                                 file_parts = []
-                                for file_part in page.content.iter_chunked(1024):
+                                async for file_part in page.content.iter_chunked(1024):
                                     bytes_downloaded += len(file_part)#gets how many bites long the file part is and adds it to the total
                                     if bytes_downloaded > 20_000_000:
                                         raise(KeyError)
@@ -322,7 +305,9 @@ Args:
                     await message.channel.send('Please only use not expired image links.')
                     await delete_message(message)
                 except KeyError:
-                    channel = discord.utils.get(guild.channels,name= admin_channel_name)
+                    channel = get_admin_channel(guild)
+                    if channel is None:
+                        return
                     await channel.send(f'Flagged image from user {message.author.name}.\nIts image size was greater than 20MB/9.')
                     await channel.send(f'Message link {message.jump_url}')
 
@@ -341,7 +326,7 @@ Args:
             allowed_channels = self.server_stats.stats[guild.id]['allowed_channels']        
             #checks if the message was sent in another channel and if thats true it checks if the bot was mentioned.
             if allowed_channels:
-                if channel_id not in allowed_channels.values(): #checks if the channel wich the message was sent in is allowed.
+                if channel_id not in allowed_channels: #checks if the channel wich the message was sent in is allowed.
                     if message.channel.name.lower() != 'admin':
                         if self.client.user not in message.mentions and message.mentions != f'<{self.client.user.id}>':
                             return
@@ -367,78 +352,23 @@ Args:
                 return
             await self.client.process_commands(message)
             return
-        winner_user = self.server_stats.winner_user(guild)
-        winner_content = self.server_stats.winner_content(guild)
+        winner_user = await self.server_stats.winner_user(guild)
+        winner_content = await self.server_stats.winner_content(guild)
         if not dont_send:
         #Starting from here the rest is responses to normal messages
-            if user_message.lower() == 'hello' or user_message.lower() == 'hi':
-                await message.channel.send(f'Hello {username}')
-            elif user_message.lower().strip('?.\'"') in ['what are we watching this sunday', 'what are we going to watch this sunday']:
-                if winner_user:
-                    if winner_user != 1:
-                        await message.channel.send(f'<@{winner_user.id}> will be or is hosting **{winner_content}** this sunday.',allowed_mentions = discord.AllowedMentions(users=False))
-                        return
-                    await message.channel.send(f'<@{winner_user.id} is currently hosting **{winner_content}** in the General VC.', allowed_mentions = discord.AllowedMentions(user=False))
-                    return
-                await message.channel.send('The winner suggestion will only be determined this sunday one hour before the event.')
-                return
-            elif user_message.lower() == 'bye':
-                await message.channel.send(f'Bye {username}')
+            if user_message.lower().strip('?.\'"') in ['what are we watching this sunday', 'what are we going to watch this sunday']:
+                            if winner_user:
+                                if winner_user != 1:
+                                    to_send= f'<@{winner_user.id}> will be or is hosting **{winner_content}** this sunday.'
+                                else:
+                                    to_send = f'<@{winner_user.id} is currently hosting **{winner_content}** in the General VC.'
 
-            elif user_message.lower() == 'tell me a joke':
-                jokes = ['Can someone please shed more'
-                            'light on how my lamp got stolen?',
-                            'Why is she called llene? She'
-                            'stands on equal legs.',
-                            'What do you call a gazelle in a '
-                            'lions territory? Denzel.']
-                await message.channel.send(random.choice(jokes))
-            elif user_message.lower().strip('?') == 'what can you do':
-                await message.channel.send(f'I can respond to basic questions and for commands you can find them all using !help')
-            elif user_message.lower().strip('?\'') == 'whats new':
-                await message.channel.send('I have a new !gen function that can "generate" python code. I also now have an entire suggestion system.')
-            elif user_message.lower().strip('?\'') == 'what are some upcoming features':
-                await message.channel.send('Probably some commands that allow you to search things in the internet trough the bot, a !stats command and a new command that lists all the questions that you can ask me (the bot).\nI recieve so many features rn because my creator is really locked in during vacation.')
-                pass
-            elif user_message.lower().strip('?’,.\'.') == 'who created you':
-                #await message.channel.send(f'I was created by the clases greatest Python programmer (even better than Telmo) called Rafael.')
-                await message.channel.send(f'I was created by only one Python programmer.')
-            elif user_message.lower().strip('?\'') == 'why didnt my command work':
-                await message.channel.send(f'If your command wasn\'t answered by me it probably was because you either wrote it in another channel that is not the bot channel, \nyou wrote the false command or you just dont have enough permsions to use that command.') 
-
-            elif user_message.lower().strip('?’,.\'.') == 'can you please ping everyone':
-                await message.channel.send(f'@everyone <@{message.author.id}> wanted me to ping you all.',allowed_mentions=discord.AllowedMentions(everyone=False))
+                            else:
+                                to_send = 'The winner suggestion will only be determined this sunday one hour before the event.'
             else:
-                await message.channel.send(random.choice(['Unnötige Frage.', 'Give it up twin🥀✌️', "Give it up bro.","Be serious bro.","That’s not it.","Bro please.","Come on bro.","That’s wild.","Bro thought this was smart.","That’s crazy. In a bad way.","Not happening.","Message rejected.","Try again.","Try harder.","Recalculate.","Re-evaluate your choices.","You are lost.","Completely lost.","Orientation missing.","Confidence was there. Logic wasn’t.","That ain’t it.","That’s tough bro.","Bro thought hes tough.","Delete that.","Let’s pretend that didn’t happen.","I’m ignoring this.","No comment.","I refuse.",'Bold move.',"Incorrect move.","Critical thinking left.", "Brain patch missing.","That changed nothing.","Energy wasted.","Time wasted.","Bro typed that confidently but confidence ≠ correctness.","Let’s not.","Just no.","You need a brain reset.","Minimal brain usage.","I’m distancing myself.","Bro why.","Explain yourself.","Just don’t.","Well that’s embarrassing.","This is not it.","I’m logging off mentally.","That’s below expectations. Way below.","Try again tomorrow.","That hurt to read.","Completely unnecessary.","Respectfully no. Disrespectfully also no.","Absolutely not.","At least you tried.", "No shot.","You can’t mean that.","That’s delusional (lightly).","You said that confidently too.","You lost me instantly.","That’s illegal logic.","You typed that willingly.","That’s not defendable.","You overcooked.","You committed too hard.","I’m disappointed in that one.","Even your mom would’ve double-checked that.","Even your mom expected better.","Your mom saw that and logged off.","Your mom would’ve taken five more seconds to write that correctly.","Even your mom knew that wasn’t it.","Even your mom wouldn’t defend that.","Even your mom would’ve googled it first.","Even your mom would’ve edited that.","Even your mom paused before that one.","Even your mom would’ve worded that better.","Even your mom would’ve structured that better."]))
-
-
-class Message_checks(commands.Cog):
-    def __init__(self, client: commands.Bot, server_stats:Server_stats):
-        """Initialize the class with the Discord bot and the server stats. During the initialization adds a global check to the Discord bot.
-
-        Args:
-            client (commands.Bot): The Discord Bot.
-            server_stats (Server_stats): The server stats.
-        """
-        self.client = client
-        self.server_stats = server_stats
-        self.client.add_check(self.is_in_confirmation)
-    
-    def is_in_confirmation(self,ctx:commands.Context):
-        if ctx.guild.id == 0:
-            return True
-        
-        if not self.server_stats.stats[ctx.guild.id]['set_up'] and ctx.message.content.strip() != '!setup':
-            ctx.set_up = False
-            return False
-        
-        if ctx.author.id == self.client.user.id or  ctx.author.id in waiting_confirmations and ctx.author.id not in change_confirmations:
-            return False
-        
-        allowed_channels = self.server_stats.stats[ctx.guild.id]['allowed_channels']        
-        #checks if the message was sent in another channel and if thats true it checks if the bot was mentioned.
-        if allowed_channels:
-            if ctx.channel.id not in allowed_channels.values(): #checks if the channel wich the message was sent in is allowed.
-                if ctx.channel.name.lower() != 'admin':
-                    return False
-        return True
+                to_send = get_matching_return_message(message)
+            allowed_mentions= discord.AllowedMentions(everyone=False,users=False,roles=False)
+            try:
+                await message.reply(to_send,allowed_mentions=allowed_mentions)
+            except discord.errors.HTTPException:
+                await message.channel.send(to_send,allowed_mentions=allowed_mentions)

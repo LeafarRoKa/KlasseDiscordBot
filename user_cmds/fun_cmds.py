@@ -1,25 +1,26 @@
-from shared_vars import commands,Server_stats
+from stats_system.server_stats import Server_stats,commands
 from datetime import datetime, timezone
 import random
 from message_events.message_management_logic import delete_message
 from user_cmds.cmds_logic import can_do_daily
+from utils.typing_utils import GuildContext,Initialized_Bot
 class Fun_cmds(commands.Cog):
-    def __init__(self, client:commands.Bot,server_stats:Server_stats):
+    def __init__(self, client:Initialized_Bot,server_stats:Server_stats):
         """Initialize the class with the discord bot and the server stats. Additionally saves all Cogs under attributes.
 
         Args:
-            client (commands.Bot): The discord Bot.
+            client (Initialized_Bot): The discord Bot.
             server_stats (Server_stats): The server stats.
         """
         self.client = client
         self.server_stats = server_stats
     
     @commands.command(help='The bot responds with Pong to this cmd.',brief='')
-    async def ping(self,ctx):#if you don't put self python tries to pass it automaticly and discord tries to pass ctx and that wont work cause there is only one argument like one place, so the first argument will ALWAYS be self and so if there is no self there is no place for ctx
+    async def ping(self,ctx:GuildContext):#if you don't put self python tries to pass it automaticly and discord tries to pass ctx and that wont work cause there is only one argument like one place, so the first argument will ALWAYS be self and so if there is no self there is no place for ctx
         await ctx.reply('Pong!')
 
     @commands.command(help='This cmd gives you a bit of xp every 24 hours.',brief='Gives xp every 24 hours.')
-    async def daily_xp(self,ctx:commands.Context):
+    async def daily_xp(self,ctx:GuildContext):
         user_stats = self.server_stats.user_stats(ctx.guild)
         can_use, hours,minutes = can_do_daily(user_stats.stats[ctx.author.id].get('time_redeemed'))
         if not can_use:

@@ -26,6 +26,7 @@ class simple_ai():
                 key = [keypart[1:-1] for keypart in key.split(', ')]
                 key = tuple(key)
             self.trained_data[key] = value
+            
     def open_training_data(self):
         """Loads all the text that the AI can be trained on.
         """

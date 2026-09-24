@@ -1,12 +1,14 @@
-from shared_vars import discord, commands, Server_stats
+from shared_vars import discord
+from stats_system.server_stats import Server_stats,commands
 from user_management.user_management_logic import give_role_logic, remove_role_logic, timeout_logic
 from message_events.message_management_logic import delete_message
+from utils.typing_utils import enforce_guild,GuildContext,Initialized_Bot
 class User_management(commands.Cog):
-    def __init__(self, client:commands.Bot,server_stats:Server_stats):
+    def __init__(self, client:Initialized_Bot,server_stats:Server_stats):
         """Initialize the class with the discord bot and the server stats. Additionally saves all Cogs under attributes.
 
         Args:
-            client (commands.Bot): The discord Bot.
+            client (Initialized_Bot): The discord Bot.
             server_stats (Server_stats): The server stats.
         """
         self.client = client
@@ -43,11 +45,12 @@ class User_management(commands.Cog):
     @commands.command(help='This cmd times out the given member for the given time. You can also provide a optional reason.',brief='Times out the given user.')
     @commands.has_permissions(moderate_members=True)
     @commands.bot_has_permissions(moderate_members=True)
-    async def timeout(self, ctx, member: discord.Member, duration: str, reason: str = 'No valid reason provided'):
+    async def timeout(self, ctx:GuildContext, member: discord.Member, duration: str, reason: str = 'No valid reason provided'):
         await timeout_logic(ctx, member, duration ,reason = reason) 
     
     @commands.command(help='This cmd timeouts you for the given amount of seconds.',brief='Times out yourself.')
     async def self_timeout(self, ctx:commands.Context,time:str='60'):
+        ctx = enforce_guild(ctx)
         if not time.isdigit():
             return
         if int(time) > 10000:
@@ -61,7 +64,6 @@ class User_management(commands.Cog):
     @commands.has_permissions(moderate_members=True)
     @commands.bot_has_permissions(manage_messages= True)
     async def set_xp(self, ctx, member: discord.Member, amount:int):
-        global server_stats
         guild = ctx.guild
         self.server_stats.stats[guild.id]['user_stats'].stats[member.id]['xp'] = amount
         await self.server_stats.save_stats()
@@ -85,9 +87,10 @@ class User_management(commands.Cog):
     @commands.has_permissions(manage_messages=True)
     async def add_badge(self,ctx, member: discord.Member,badge_name:str):
         guild = ctx.guild
-        if badge_name in self.server_stats[guild.id]['badges_imgs'].keys():
+        if badge_name in self.server_stats.stats[guild.id]['badges_imgs'].keys():
             self.server_stats.user_stats(guild).stats[member.id]['badges'].append(self.server_stats[guild.id]['badges_imgs'].get(badge_name))
             ... #TODO complete function
+
     @commands.command(help='This cmd removes the given role from all the users in the server if they have it.',brief='Removes the given role from everyone.')
     @commands.has_permissions(manage_roles= True)
     @commands.bot_has_permissions(manage_roles = True)

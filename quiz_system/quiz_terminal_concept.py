@@ -1,6 +1,7 @@
 from datetime import datetime, date, timedelta, timezone
 events = {}
 def quiz_setup():
+    global events
     change_functions = {1:{'func':is_unique,'param':'What would you like to call this event?','save_var':''},2:{'func':enter_frequency,'param':'','save_var':''},3:{'func':input,'param':'What role (enter the name) would you like to get pinged for this quiz?(None for no ping, Everyone to ping everyone.)','save_var':''},
                                 4:{'func':num_checking_input,'param':'In wich channel would you like the questions to be sent? (enter channelid)','save_var':''},5:{'func':can_respond_bool,'param':'Would you like that people can respond to the question by using a bot cmd. (y,n)','save_var':''},
                                 6:{'func':question_asking,'param':'','save_var':''}}
@@ -32,7 +33,7 @@ def quiz_setup():
     
     def change_menu():
         global events
-        change = input('The options are the following: 1 event name, 2 frequency, 3 role pinged, 4 question channel, 5 if users can respond' + ', 6 questions and responses\nWhat would you like to change (exit to exit)?' if change_functions[4]['save_var'] else + '')
+        change = input('The options are the following: 1 event name, 2 frequency, 3 role pinged, 4 question channel, 5 if users can respond' + ', 6 questions and responses\nWhat would you like to change (exit to exit)?' if change_functions[4]['save_var'] else '')
         if len(change) == 1 and change.isdigit() and int(change) in range(1,7) if change_functions[4]['save_var'] else int(change) in range(1,5):
             change = int(change)
             change_functions[change]['save_var'] = change_functions[change]['func'](change_functions[change]['param']) if change_functions[change]['param'] else change_functions[change]['func']()
@@ -83,7 +84,7 @@ def enter_frequency():
         return enter_frequency()
     return f'{often[2]} ' + {'1':'days','2':'weeks','3':'hours'}[often[0]]
 
-def num_checking_input(prompt:str,lower_bound:int='',upper_bound:int=''):
+def num_checking_input(prompt:str,lower_bound:int|None=None,upper_bound:int|None=None):
     question_count = input(prompt)
     if not question_count.isdigit() or lower_bound and int(question_count) < lower_bound or upper_bound and int(question_count) > upper_bound:
         print(f'{question_count} is not a valid input.')
@@ -100,15 +101,15 @@ def time_diff(day:str|int):
     diff = (user_day-today).total_seconds()
     return int(diff)
 
-def get_day(day:str|int):
-    day = day.strip()
+def get_day(day_str:str):
+    day_str = day_str.strip()
     days = ['monday','tuesday','wendsday','thursday','friday','saturday','sunday']
-    day  = days.index(day)+1 if day in days else int(day) if day.isdigit and int(day) in range(1,7) else None
+    day = days.index(day_str)+1 if day_str in days else int(day_str) if day_str.isdigit() and int(day_str) in range(1,7) else None
     if not day:
         print('Invalid day.')
-        return time_diff(day)
-    #print(days[day-1])
+        return time_diff(day_str)
     return day, days[day-1]
+
 if __name__ == '__main__':
     print(time_diff(input('What day would you like the quiz to occour?')))
     #quiz_setup()

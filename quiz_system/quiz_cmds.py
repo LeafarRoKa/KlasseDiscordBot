@@ -1,14 +1,17 @@
-from shared_vars import commands, Server_stats, User_stats, REWARDS
+from shared_vars import REWARDS
+from stats_system.server_stats import Server_stats,commands
+from stats_system.user_stats import User_stats
 from message_events.message_management_logic import Response_waiting, send_and_response_waiting_text, send_and_response_waiting_bool
 from quiz_system.quiz_logic import Quiz_logics, exitsts_with_questions, create_counter, num_checking_input, give_rewards
 from user_management.user_management_logic import get_member
+from utils.typing_utils import GuildContext, Initialized_Bot
 
 class Quiz_system(commands.Cog):
-    def __init__(self, client:commands.Bot,server_stats:Server_stats):
+    def __init__(self, client:Initialized_Bot,server_stats:Server_stats):
         """Initialize the class with the Discord bot and the server stats. Additionally creates an attributes for user responses.
 
         Args:
-            client (commands.Bot): The Discord Bot.
+            client (Initialized_Bot): The Discord Bot.
             server_stats (Server_stats): The server stats.
         """
         self.client = client
@@ -16,8 +19,9 @@ class Quiz_system(commands.Cog):
         self.responses = {}
 
     @commands.command()
+    @commands.guild_only()
     @commands.has_permissions(manage_events=True)
-    async def create_quiz(self,ctx:commands.Context):
+    async def create_quiz(self,ctx:GuildContext):
                         #where would you like the responses to be sent
         response_waiter = Response_waiting(ctx,self.client,300)
 
@@ -51,16 +55,17 @@ class Quiz_system(commands.Cog):
         
 
     @commands.command()
+    @commands.guild_only()
     @commands.has_permissions(manage_events=True)
-    async def edit_quiz(self,ctx:commands.Context, quiz_name:str | None  = None):
+    async def edit_quiz(self,ctx:GuildContext, quiz_name:str | None  = None):
         """Let a user edit a created quiz.
 
         Args:
-            ctx (commands.Context): The command context.
+            ctx (GuildContext): The command context.
             quiz_name (str | None, optional): The name of the quiz to edit. Defaults to None.
         """
-        if not quiz_name:
-            ...#TODO make it ask the name if no or an invalid quiz name are given bcs else it would only work with "" if they have a name with a space   
+        # if not quiz_name:
+        #     ...#TODO make it ask the name if no or an invalid quiz name are given bcs else it would only work with "" if they have a name with a space   
         if not quiz_name in self.server_stats.stats[ctx.guild.id]['quizzes']:
             quiz_names = [name for name in self.server_stats.stats[ctx.guild.id]['quizzes'].keys()]
             await ctx.send(f'There is no existing current quiz called {quiz_name}. If you want to create a new quiz use quiz_setup.\nThe existing quizzes are {quiz_names}')
@@ -71,14 +76,15 @@ class Quiz_system(commands.Cog):
         await quiz_logics.change_menu(quiz_name)
     
     @commands.command()
-    async def respond_to_quiz(self, ctx:commands.Context,quiz_name:str):
+    @commands.guild_only()
+    async def respond_to_quiz(self, ctx:GuildContext,quiz_name:str):
         """Let a user respond to the named quiz with their response.
 
         Args:
-            ctx (commands.Context): The command context.
+            ctx (GuildContext): The command context.
             quiz_name (str): The quiz they want to respond to.
         """
-        is_missing = await exitsts_with_questions(quiz_name=quiz_name,server_stats=self.server_stats,ctx=ctx)
+        is_missing = exitsts_with_questions(quiz_name=quiz_name,server_stats=self.server_stats,ctx=ctx)
         if is_missing:
             await ctx.reply(is_missing)
             return 
@@ -86,30 +92,34 @@ class Quiz_system(commands.Cog):
         if not response:
             return
         set_response = self.server_stats.stats[ctx.guild.id]['quizzes'][quiz_name]['response'] 
-        if not self.server_stats.stats[ctx.guild.id]['user_stats'].stats[ctx.author.id].get('quizzes'):
-            self.server_stats.stats[ctx.guild.id]['user_stats'].stats[ctx.author.id]['quizzes'] = {}
-            if not self.server_stats.stats[ctx.guild.id]['user_stats'].stats[ctx.author.id]['quizzes'].get(quiz_name):
-                self.server_stats.stats[ctx.guild.id]['user_stats'].stats[ctx.author.id]['quizzes'][quiz_name] = {} 
+        # if not self.server_stats.stats[ctx.guild.id]['user_stats'].stats[ctx.author.id].get('quizzes'):
+        #     self.server_stats.stats[ctx.guild.id]['user_stats'].stats[ctx.author.id]['quizzes'] = {}
+        if not self.server_stats.stats[ctx.guild.id]['user_stats'].stats[ctx.author.id]['quizzes'].get(quiz_name):
+            self.server_stats.stats[ctx.guild.id]['user_stats'].stats[ctx.author.id]['quizzes'][quiz_name] = {} 
         self.server_stats.stats[ctx.guild.id]['user_stats'].stats[ctx.author.id]['quizzes'][quiz_name]['response'] = response if not set_response else any(response.lower() == given_response.lower() for given_response in set_response)
     
     @commands.command()
     @commands.has_permissions(manage_events=True)
-    async def get_responses(self, ctx:commands.Context,quiz_name:str) -> list[list[str]] | None:
+    async def get_responses(self, ctx:GuildContext,quiz_name:str) -> list[tuple[str,int]] | None:
         """Sends all user responses to the named quiz.
 
         Args:
-            ctx (commands.Context): The command context.
+            ctx (GuildContext): The command context.
             quiz_name (str): The quiz name the user wants to respond to.
 
         Returns:
             list[list[str]] | None: Returns either a list in a list containing the user response with a number assigned to it and the user stats object or None if there are no responses.
         """
-        is_missing = await exitsts_with_questions(quiz_name=quiz_name,server_stats=self.server_stats,ctx=ctx)
+        is_missing = exitsts_with_questions(quiz_name=quiz_name,server_stats=self.server_stats,ctx=ctx)
         if is_missing:
             await ctx.reply(is_missing)
             return
         counter = create_counter()
-        responses = [[f'{next(counter)}. {self.server_stats.stats[ctx.guild.id]['user_stats'].stats[user_data]['quizzes'][quiz_name]['response']}\n',user_data] for user_data in self.server_stats.stats[ctx.guild.id]['user_stats'].stats if self.server_stats.stats[ctx.guild.id]['user_stats'].stats[user_data].get('quizzes') and self.server_stats.stats[ctx.guild.id]['user_stats'].stats[user_data]['quizzes'].get(quiz_name) and self.server_stats.stats[ctx.guild.id]['user_stats'].stats[user_data]['quizzes'][quiz_name].get('response')]
+        responses = [(f'{next(counter)}. {self.server_stats.stats[ctx.guild.id]['user_stats'].stats[user_id]['quizzes'][quiz_name]['response']}\n',user_id)
+                     for user_id in self.server_stats.stats[ctx.guild.id]['user_stats'].stats 
+                     if self.server_stats.stats[ctx.guild.id]['user_stats'].stats[user_id].get('quizzes') 
+                     and self.server_stats.stats[ctx.guild.id]['user_stats'].stats[user_id]['quizzes'].get(quiz_name) 
+                     and self.server_stats.stats[ctx.guild.id]['user_stats'].stats[user_id]['quizzes'][quiz_name].get('response')]
         self.responses[quiz_name] = responses
         response_text = ''.join(txt[0] for txt in responses) if not self.server_stats.stats[ctx.guild.id]['quizzes'][quiz_name]['response'] else f'Correct {sum(bool(correct[0].strip('\n ').split()[1].strip()) for correct in responses)*100/len(responses)}% False {(len(responses) - sum(bool(correct[0].strip('\n ').split()[1].strip()) for correct in responses))*100/len(responses)}%.'
         await ctx.reply(response_text)
@@ -117,11 +127,11 @@ class Quiz_system(commands.Cog):
     
     @commands.command()
     @commands.has_permissions(manage_events=True)
-    async def give_rewards(self, ctx:commands.Context,quiz_name:str):
+    async def give_rewards(self, ctx:GuildContext,quiz_name:str):
         """Shows the responses with the get_responses function. Allows choosing which answers receive the reward by number if no clear answer was set, otherwise allows confirming that the correct answers receive it. 
 
         Args:
-            ctx (commands.Context): The command context.
+            ctx (GuildContext): The command context.
             quiz_name (str): The quiz name to give the rewards to the answers.
 
         Returns:
@@ -158,10 +168,10 @@ class Quiz_system(commands.Cog):
             Returns:
                 _type_: _description_
             """
-            num = await num_checking_input(prompt,response_waiter=response_waiter,accept_point=True,lower_bound= 1, upper_bound=len(responses)+1)
-            if num in ['exit']:
+            num = await num_checking_input(prompt,response_waiter,ctx,accept_point=True,lower_bound=1, upper_bound=len(responses)+1,accept_exit=True)
+            if num  == 'exit':
                 return
-            member = await get_member(ctx.guild, responses[num-1][0])
+            member = await get_member(ctx.guild, responses[num-1][1])
             if not member:
                 return await ask_num_until_exit(prompt)
             give_rewards(user_stats,name,amount,member)
@@ -170,7 +180,7 @@ class Quiz_system(commands.Cog):
 
     @commands.command()
     @commands.is_owner()
-    async def execute_quiz(self,ctx:commands.Context,name:str):
+    async def execute_quiz(self,ctx:GuildContext,name:str):
         if not name in self.server_stats.stats[ctx.guild.id]['quizzes']:
             await ctx.reply(f'The event {name} does not yet exist.\nPlease either use the command !create_quiz to create a new quiz or try again with another name.')
             return
@@ -179,11 +189,11 @@ class Quiz_system(commands.Cog):
         await quiz_logics.quiz_execution(60)
 
     @commands.command()
-    async def list_quizzes(self,ctx:commands.Context):
+    async def list_quizzes(self,ctx:GuildContext):
         """Sends a list of all existing quizzes. 
 
         Args:
-            ctx (commands.Context): The commands context.
+            ctx (GuildContext): The commands context.
         """        
         leading = '\n*    '
         await ctx.reply(leading + leading.join(quiz_name for quiz_name in self.server_stats.stats[ctx.guild.id]['quizzes'].keys()))

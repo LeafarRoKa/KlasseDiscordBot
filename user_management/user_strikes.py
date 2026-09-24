@@ -1,36 +1,41 @@
 
-from shared_vars import discord, Server_stats,admin_channel_name,waiting_list
+from shared_vars import discord, admin_channel_name,waiting_list
+from stats_system.server_stats import Server_stats
 from datetime import timedelta, datetime, timezone
 from user_management.user_management_logic import promote, timeout_logic
+from utils.utils import get_admin_channel
+from utils.typing_utils import GuildContext,GuildMessage
 
-async def add_strike_code(member: discord.Member,server_stats:Server_stats, amount:int = '1', ctx = None, reason= 'No reason provided.'):
-    if type(amount) != int:
-        amount = int(amount)
+async def add_strike_code(member: discord.Member,server_stats:Server_stats,ctx:GuildContext|GuildMessage, amount:int = 1, reason= 'No reason provided.'):
+    # if type(amount) != int:
+    #     amount = int(amount)
     server_stats.stats[member.guild.id]['strikes'][member.id] += amount
     await server_stats.save_stats()
     await strikes_punishments(member,server_stats, ctx, reason)
 
-async def set_strikes_code(ctx, member: discord.Member,server_stats:Server_stats, amount ='1'):
+async def set_strikes_code(ctx:GuildContext, member: discord.Member,server_stats:Server_stats, amount ='1'):
     if type(amount) != int:
         amount = int(amount)
     server_stats.stats[member.guild.id]['strikes'][member.id] = amount
     await strikes_punishments(member,server_stats,ctx)
     await ctx.send(f'The strikes of {member.display_name} were successfully set to {amount}')
 
-
-async def strikes_punishments(member: discord.Member, server_stats:Server_stats, ctx  = None, reason= 'No reason provided.'):
+async def strikes_punishments(member: discord.Member, server_stats:Server_stats, ctx:GuildContext|GuildMessage, reason= 'No reason provided.'):
     global waiting_list
     guild = member.guild
     user_stats = server_stats.user_stats(guild)
-    channel =  discord.utils.get(guild.channels,name= admin_channel_name) #admin channel
+    channel =  get_admin_channel(guild) #admin channel
     if user_stats.stats[member.id]['rank'] == 'owner':
         name = 'Owner'
     else:
         name= user_stats.stats[member.id]['rank'] 
-    old_role = discord.utils.get(guild.roles, name = name)#it is called that way to save it as an old role if the user recieves spammer
+    old_role = discord.utils.get(guild.roles, name=name)#it is called that way to save it as an old role if the user recieves spammer
     spammer = discord.utils.get(guild.roles, name= 'spammer')
     strikes = server_stats.strikes(guild)
-    if old_role.name in list(server_stats.stats[guild.id]['server_roles'].values())[6:]:
+    if not old_role or not spammer:
+        server_stats.stats[guild.id]['set_up'] = False
+        return
+    if old_role.name in list(server_stats.stats[guild.id]['roles_requirements'])[6:]:
         if strikes[member.id] < server_stats.stats[guild.id]['roles_requirements'].get(old_role.name, {}).get('strikes', 0) + 10:
             return
     if channel is None:
@@ -38,7 +43,7 @@ async def strikes_punishments(member: discord.Member, server_stats:Server_stats,
         return
     if strikes[member.id] == 1:
         time_obj = '1m'
-        await timeout_logic(ctx, member, time_obj, reason= reason)
+        await timeout_logic(ctx,member, time_obj, reason= reason)
         await channel.send(f'{member.name} was timedout for {time_obj} for having {strikes[member.id]} strikes.')
     elif strikes[member.id] == 2:
         time_obj = '5m'
@@ -85,16 +90,16 @@ async def strikes_punishments(member: discord.Member, server_stats:Server_stats,
         else:
             waiting_list[member.id]['time'] +=ban_time
 
-        if ctx == None:
-            await channel.send(f'User {member.name} got flagged for spamming.')
-        else:
-            await ctx.reply('You got flagged for spamming or saying slurs.', delete_after = 5)
+        # if ctx is None:
+        #     await channel.send(f'User {member.name} got flagged for spamming.')
+        # else:
+        await ctx.reply('You got flagged for spamming or saying slurs.', delete_after = 5)
 
     elif strikes[member.id] >= 20 and strikes[member.id] <= 40:
         user_stats.stats[member.id]['role_before_spam'] = old_role.name
         await promote(old_role, spammer, member,server_stats)
         await server_stats.save_stats()
-        await timeout_logic(member, '1d', reason=reason)
+        await timeout_logic(ctx,member, '1d', reason=reason)
 
     elif strikes[member.id] > 40:
         await member.kick(reason='You were kicked because you currently had 40 strikes on the server.\nPlease contact the server admins if you think this treatment is unfair.')

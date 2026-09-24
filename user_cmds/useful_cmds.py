@@ -1,20 +1,24 @@
-from shared_vars import commands, Server_stats, code_dict, discord, save_data, ALLOWED_FILE_ENDINGS, MONTHS
+from shared_vars import code_dict, discord, save_data, ALLOWED_FILE_ENDINGS, MONTHS
+from stats_system.server_stats import Server_stats,commands
 from message_events.message_management_logic import response_waiting
 from user_cmds.cmds_logic import format_to_code, PIL_round_img_obj,PIL_text_obj
 from io import BytesIO
 from PIL import Image, ImageDraw
 import aiohttp
 from pathlib import Path
+from utils.typing_utils import Initialized_Bot,GuildContext
+import time
 class Basic_cmds(commands.Cog):
-    def __init__(self, client:commands.Bot,server_stats:Server_stats):
+    def __init__(self, client:Initialized_Bot,server_stats:Server_stats):
         """Initialize the class with the discord bot and the server stats. Additionally saves all Cogs under attributes.
 
         Args:
-            client (commands.Bot): The discord Bot.
+            client (Initialized_Bot): The discord Bot.
             server_stats (Server_stats): The server stats.
         """
         self.client = client
         self.server_stats = server_stats
+
     @commands.command(help='This cmd gives you the code for the given code name.',brief='Gives code for the given name.')
     async def gen(self, ctx:commands.Context, user_input: str='help'): # TODO Make it so that you can do smth like gen(first command(if this command endswith : + 4 spaces , ; (go back four spaces,(, adds a newline))) ) also mayber add a gen cmd for another language
         #global code_dict
@@ -36,22 +40,23 @@ class Basic_cmds(commands.Cog):
             if self.client.owner_id == ctx.author.id:
                 await ctx.send('Would you like to add this code? (y/n)')
                 response = await response_waiting(ctx,self.client)
-                if response == None:
+                if response is None:
                     return
                 if response.content.lower() == 'y':
                     await ctx.send('What is the code?')
                     code = await response_waiting(ctx, self.client,time = 180)
-                    if response is None:
+                    if code is None:
                         return 
                     if code.attachments and not code.content.strip():
                         if len(code.attachments) == 1:
                             if any(code.attachments[0].filename.lower().endswith(fileend) for fileend in ALLOWED_FILE_ENDINGS):
                                 content_in_bytes = await code.attachments[0].read()
+                                code =''
                                 try:
-                                    code  = content_in_bytes.decode('UTF-8')
+                                    code = content_in_bytes.decode('UTF-8')
                                 except UnicodeDecodeError:
                                     print(f'Error while trying to decode file')
-                    if isinstance(code, discord.Message):
+                    if not isinstance(code, str):
                         code = code.content
                     final_code = format_to_code(code, 'python')
                     code_dict[user_input] = final_code
@@ -99,14 +104,16 @@ class Basic_cmds(commands.Cog):
             await ctx.send('This code description does not exist in the code dict.')
     
     @commands.command(help='This cmd sends a stats card of the given user.',brief='Shows stats of the given user.')   
-    async def stats(self, ctx:commands.Context, user: discord.Member = None):
-        print(f'called stats with msg {ctx.message.id}')
+    async def stats(self, ctx:GuildContext, user: discord.Member|None = None):
+        # start = time.perf_counter()
+        # print(f'called stats with msg {ctx.message.id}')
         if user == None:
             member = ctx.author
         else:
             member = user
         guild = member.guild
         user_stats = self.server_stats.user_stats(guild)
+        # print(time.perf_counter()-start)
         try:
             avatar_in_bytes = await member.display_avatar.read() if member.avatar else await member.default_avatar.read()
             rounded_img, mask = PIL_round_img_obj(avatar_in_bytes, (395,395))
@@ -117,16 +124,18 @@ class Basic_cmds(commands.Cog):
             server = ctx.guild
             index = server.id % 5#this is the server icon discord chooses out of the 5 using the same line
             server_avatar_url = server.icon.url if server.icon else f'https://cdn.discordapp.com/embed/avatars/{index}.png'
-
+            # print('after getting link',time.perf_counter()-start)
             async with aiohttp.ClientSession() as session: #starts a new http session, use it with paragraphs to use the function not the class
                 async with session.get(server_avatar_url) as site: #opens the icon or default server icon site
                     server_avatar_in_bytes = await site.read() 
-
+            # print('after opening and loading image',time.perf_counter()-start)
             img2,mask = PIL_round_img_obj(server_avatar_in_bytes,(90,90))
             white_image.paste(img2,(535,125),mask=mask)            
             current_xp = user_stats.stats[member.id]['xp']
+            # print('after creating the mark',time.perf_counter()-start)
             try:
-                xp_needed = self.server_stats.stats[guild.id]['roles_requirements'][next(k for k,v in self.server_stats.stats[guild.id]['server_roles'].items() if v == user_stats.stats[member.id]['next_rank'])]['xp']
+                xp_needed = self.server_stats.stats[guild.id]['roles_requirements'][user_stats.stats[member.id]['next_rank']]['xp']
+                # print('after getting data',time.perf_counter()-start)
             except (KeyError,StopIteration):
                 xp_needed = ''
             txt_to_dp = f'XP: {current_xp}/{xp_needed}'
@@ -138,6 +147,7 @@ class Basic_cmds(commands.Cog):
                     current_xp = 1
                 txt_to_dp = 'Max XP'
             draw = ImageDraw.Draw(white_image)
+            # print('after drawing',time.perf_counter()-start)
             progress= current_xp/xp_needed # Total_widht * progress = current xp / needed xp
             full_width = 500
             width_bar = int(full_width * progress)
@@ -153,12 +163,14 @@ class Basic_cmds(commands.Cog):
                     end_color = (120, 255, 255)
                 percentage = x / (bar.width-1)
                 bar_pixels = bar.load()
+                # print('after loading bar',time.perf_counter()-start)
+                if bar_pixels is None:
+                    raise ValueError('Stats image could not be loaded.')#TODO implement own error class here 
                 r = int(start_color[0] + (end_color[0] - start_color[0]) * percentage)# it works because when it gets brighter the way is - so every time it removes more
                 g = int(start_color[1] + (end_color[1] - start_color[1]) * percentage)# it takes the base and adds the way multiplied by how far to it
                 b = int(start_color[2] + (end_color[2] - start_color[2]) * percentage)
                 for y in range(bar.height):
                     bar_pixels[x,y] = (r,g,b)
-
             mask = Image.new('L', (width_bar, height_bar), 0)
             x= int(width/2)
             y = int(height/2.5)
@@ -200,15 +212,11 @@ class Basic_cmds(commands.Cog):
                     response = f'It is not possible to progress with XP.\nIt is only possible to rank up\n{user_stats.stats[member.id]["xp_for_next_rank"]}.'
             else:
                 response = f'You need {user_stats.stats[member.id]["xp_for_next_rank"]} xp to rank up to {user_stats.stats[member.id]["next_rank"]}\n(Every message gives 5xp).\n'
-            counter = 0
-            for split in user_stats.stats[member.id]['join_date'].split('.'):
-                if counter == 0:
-                    day = str(split)
-                elif counter == 1:
-                    month = MONTHS[split]
-                elif counter == 2:
-                    year = str(split)
-                counter += 1
+            # print('after smth',time.perf_counter()-start)
+            join_date_parts = user_stats.stats[member.id]['join_date'].split('.')
+            day = join_date_parts[0]
+            month = join_date_parts[1]
+            year = join_date_parts[2]
             date = f'{day} {month} {year}'
             cords = (x, y-50)
             draw = PIL_text_obj(draw, cords, txt_to_dp,font_size= font_size+10)
@@ -231,7 +239,7 @@ class Basic_cmds(commands.Cog):
             draw = PIL_text_obj(draw,cords, f'Total XP           {user_stats.stats[member.id]["xp"]}',font_size= font_size)
             cords = cords[0], cords[1] + extra
             draw = PIL_text_obj(draw,cords, f'{response}',font_size= font_size)
-            
+            # print('after drawing a lot',time.perf_counter()-start)
             if rank_img != '':
                 try:
                     with Image.open(rank_img, 'r') as rank_img2:
@@ -247,11 +255,12 @@ class Basic_cmds(commands.Cog):
                 if rank_img.size == (300-extra,300-extra):
                     rank_img = rank_img.resize((200,200))
                 white_image.paste(rank_img,(85,550), rank_img)#rank_img works as a mask bcs pillow automaticly only uses the alpha channel of the image that it already has
-            white_image.resize((500,333), Image.LANCZOS)
+            white_image.resize((500,333), Image.Resampling.LANCZOS)
             ram = BytesIO()#creates new ram
             white_image.save(ram, format='PNG')#saves it in the ram
             ram.seek(0)
             file = discord.File(fp=ram, filename='stats_card.png')
+            # print('after creating file data',time.perf_counter()-start)
             await ctx.reply(file=file)
         except discord.Forbidden:
             await ctx.reply('I do not have permissions to send files in this channel.\nIt is probably deactivated for the bot or for everyone to attach files.')
